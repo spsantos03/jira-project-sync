@@ -99,6 +99,8 @@ Create the per-project config file:
 
 ### Step 8: Write `.claude/jira-sync-state`
 
+**Use Bash for this** (the Write tool will fail on new files that haven't been read):
+
 If the repo has commits:
 ```bash
 git rev-parse HEAD > .claude/jira-sync-state

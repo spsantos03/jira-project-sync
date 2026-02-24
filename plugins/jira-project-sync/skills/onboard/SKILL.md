@@ -222,6 +222,8 @@ rm .claude/jira-onboard-plan.md
 
 ### Step 11: Write `.claude/jira-sync-state`
 
+**Use Bash for this** (the Write tool will fail on new files that haven't been read):
+
 ```bash
 git rev-parse HEAD > .claude/jira-sync-state
 ```
