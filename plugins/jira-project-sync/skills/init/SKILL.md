@@ -61,17 +61,29 @@ jql: "project = {PROJECT_KEY} ORDER BY created DESC"
 
 ### Step 6: Discover transition IDs
 
-Try to get available transitions from an existing issue:
+You need an existing issue to query transitions. If step 5 returned issues, use one. If not, create a temporary issue:
+
+```
+Tool: mcp__plugin_atlassian_atlassian__createJiraIssue
+cloudId: {CLOUD_ID}
+projectKey: {PROJECT_KEY}
+issueTypeName: "Task"
+summary: "_temp: discovering transition IDs (will be deleted)"
+```
+
+Then get available transitions:
 
 ```
 Tool: mcp__plugin_atlassian_atlassian__getTransitionsForJiraIssue
-issueIdOrKey: {any issue key from step 5}
+cloudId: {CLOUD_ID}
+issueIdOrKey: {issue key}
 ```
 
-Look for the transition that moves issues to "Done" status. Save its ID.
+Look for the transition where `statusCategory.key` is `"done"`. Save its `id` as the Done transition ID.
 
-If no issues exist yet (empty project), ask the user:
-> "No existing issues found to detect transition IDs. What is the transition ID for 'Done' in your Jira workflow? (Common values: 31, 41, 51)"
+Delete the temp issue after getting the transitions (or transition it to Done and leave it).
+
+**IMPORTANT:** "Done" is typically transition ID 41 in standard Jira workflows. Do NOT assume 31 (that is usually "In Progress").
 
 ### Step 7: Write `.claude/jira-sync.json`
 

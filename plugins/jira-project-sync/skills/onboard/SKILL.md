@@ -66,15 +66,29 @@ jql: "project = {PROJECT_KEY} ORDER BY created DESC"
 
 ### Step 6: Discover transition Done ID
 
-Try to detect the Done transition from an existing issue:
+You need an existing issue to query transitions. If step 5 returned issues, use one. If not, create a temporary issue:
+
+```
+Tool: mcp__plugin_atlassian_atlassian__createJiraIssue
+cloudId: {CLOUD_ID}
+projectKey: {PROJECT_KEY}
+issueTypeName: "Task"
+summary: "_temp: discovering transition IDs (will be deleted)"
+```
+
+Then get available transitions:
 
 ```
 Tool: mcp__plugin_atlassian_atlassian__getTransitionsForJiraIssue
-issueIdOrKey: {any issue from step 5, or skip if none}
+cloudId: {CLOUD_ID}
+issueIdOrKey: {issue key}
 ```
 
-If no issues exist, ask the user:
-> "What is the transition ID for 'Done' in your Jira workflow? (Common values: 31, 41, 51)"
+Look for the transition where `statusCategory.key` is `"done"`. Save its `id` as the Done transition ID.
+
+If you created a temp issue, delete it after getting the transitions, or reuse it as the first onboarding card.
+
+**IMPORTANT:** The transition `name` matters — "Done" is typically ID 41 in standard Jira workflows. Do NOT assume 31 (that is usually "In Progress").
 
 ### Step 7: Write `.claude/jira-sync.json`
 
@@ -127,8 +141,9 @@ For each group, create a Jira card:
 
 ```
 Tool: mcp__plugin_atlassian_atlassian__createJiraIssue
+cloudId: {CLOUD_ID}
 projectKey: {PROJECT_KEY}
-issueType: "Task"
+issueTypeName: "Task"
 summary: {group topic name — concise, imperative}
 description: |
   Commits imported from git history:
@@ -139,13 +154,18 @@ description: |
   ...
 ```
 
+**Note:** Use `issueTypeName` (not `issueType`). Always include `cloudId`.
+
 Then transition to Done:
 
 ```
 Tool: mcp__plugin_atlassian_atlassian__transitionJiraIssue
+cloudId: {CLOUD_ID}
 issueIdOrKey: {newly created issue key}
-transitionId: {TRANSITION_DONE_ID}
+transition: {"id": "{TRANSITION_DONE_ID}"}
 ```
+
+**IMPORTANT:** The `transition` parameter must be an object `{"id": "41"}`, NOT a flat string. And `transitionId` is NOT a valid parameter — use `transition` instead.
 
 #### 8e: Report results
 
