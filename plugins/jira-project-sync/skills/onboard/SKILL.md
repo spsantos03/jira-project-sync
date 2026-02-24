@@ -104,9 +104,9 @@ mkdir -p .claude
 }
 ```
 
-### Step 8: Import all existing commits
+### Step 8: Build import plan
 
-This is the core of the onboard flow. Follow carefully.
+This step creates a persistent plan file so that the grouping survives context compaction.
 
 #### 8a: Get full commit history
 
@@ -126,7 +126,7 @@ Read file: ${CLAUDE_PLUGIN_ROOT}/skills/onboard/references/commit-grouping.md
 
 Follow these rules exactly when grouping.
 
-#### 8c: Semantically group commits
+#### 8c: Semantically group commits and save plan
 
 Analyze all commits and group them into logical cards based on the grouping rules:
 - Group by semantic topic (feature, bugfix area, infrastructure)
@@ -135,16 +135,52 @@ Analyze all commits and group them into logical cards based on the grouping rule
 - Related fixes/iterations go together
 - Max ~15 commits per card
 
-#### 8d: Create Jira cards for each group
+**Write the plan to `.claude/jira-onboard-plan.md`** with this exact format:
 
-For each group, create a Jira card:
+```markdown
+# Jira Onboard Plan
+
+Project: {PROJECT_KEY}
+Cloud ID: {CLOUD_ID}
+Transition Done ID: {TRANSITION_DONE_ID}
+Total commits: {N}
+Total cards: {M}
+
+## Cards
+
+### Card 1: {summary}
+Status: pending
+- {hash1}|{date}|{author}|{message}
+- {hash2}|{date}|{author}|{message}
+
+### Card 2: {summary}
+Status: pending
+- {hash3}|{date}|{author}|{message}
+
+...
+```
+
+Each card section has:
+- A `### Card N: {summary}` heading with the Jira card summary
+- A `Status:` line — starts as `pending`, updated to `created:{ISSUE_KEY}` after creation
+- A list of commits belonging to that card (pipe-delimited)
+
+**This file is the source of truth for the import.** If the session is compacted or restarted, read this file to resume where you left off.
+
+### Step 9: Execute import plan
+
+Read `.claude/jira-onboard-plan.md` and process each card with `Status: pending`:
+
+#### For each pending card:
+
+1. **Create the Jira issue:**
 
 ```
 Tool: mcp__plugin_atlassian_atlassian__createJiraIssue
 cloudId: {CLOUD_ID}
 projectKey: {PROJECT_KEY}
 issueTypeName: "Task"
-summary: {group topic name — concise, imperative}
+summary: {card summary from plan}
 description: |
   Commits imported from git history:
 
@@ -156,7 +192,7 @@ description: |
 
 **Note:** Use `issueTypeName` (not `issueType`). Always include `cloudId`.
 
-Then transition to Done:
+2. **Transition to Done:**
 
 ```
 Tool: mcp__plugin_atlassian_atlassian__transitionJiraIssue
@@ -167,14 +203,24 @@ transition: {"id": "{TRANSITION_DONE_ID}"}
 
 **IMPORTANT:** The `transition` parameter must be an object `{"id": "41"}`, NOT a flat string. And `transitionId` is NOT a valid parameter — use `transition` instead.
 
-#### 8e: Report results
+3. **Update the plan file:** Change `Status: pending` to `Status: created:{ISSUE_KEY}` for that card.
 
-After all cards are created, report:
+#### After all cards are processed:
+
+Report:
 > "Created X cards from Y commits in project {PROJECT_KEY}."
 
 List the card summaries briefly.
 
-### Step 9: Write `.claude/jira-sync-state`
+### Step 10: Clean up plan file
+
+Delete the plan file after successful import:
+
+```bash
+rm .claude/jira-onboard-plan.md
+```
+
+### Step 11: Write `.claude/jira-sync-state`
 
 ```bash
 git rev-parse HEAD > .claude/jira-sync-state
@@ -182,7 +228,7 @@ git rev-parse HEAD > .claude/jira-sync-state
 
 This marks the current HEAD so the hook doesn't re-process these commits.
 
-### Step 10: Update CLAUDE.md
+### Step 12: Update CLAUDE.md
 
 Check if `CLAUDE.md` exists at the project root.
 
@@ -227,7 +273,7 @@ Check if `CLAUDE.md` exists at the project root.
 - Cards criados sao automaticamente transicionados para Done
 ```
 
-### Step 11: Confirm
+### Step 13: Confirm
 
 Tell the user:
 > "Onboarding complete! {X} cards created from {Y} commits. Jira sync is now active for project {PROJECT_KEY}. Every `git push` will automatically sync new commits to Jira."
