@@ -55,9 +55,11 @@ Extract the `id` field from the first accessible resource.
 
 ```
 Tool: mcp__plugin_atlassian_atlassian__searchJiraIssuesUsingJql
-JQL: project = {PROJECT_KEY} ORDER BY created DESC
-maxResults: 1
+cloudId: {CLOUD_ID}
+jql: "project = {PROJECT_KEY} ORDER BY created DESC"
 ```
+
+**Note:** Do NOT pass `maxResults` or `fields` parameters — they cause type errors. Just use `cloudId` and `jql`.
 
 - **If project exists:** Confirm and proceed.
 - **If NOT found:** Tell user to create the project in Jira UI first, wait for confirmation.
