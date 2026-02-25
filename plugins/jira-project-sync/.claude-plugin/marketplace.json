@@ -1,0 +1,17 @@
+{
+  "name": "local-plugins",
+  "owner": {
+    "name": "Sergio Santos"
+  },
+  "plugins": [
+    {
+      "name": "jira-project-sync",
+      "description": "Automatic Jira synchronization for git projects. Syncs commits to Jira cards on every push, bootstraps new projects, and onboards existing repos with full commit history import.",
+      "version": "1.0.0",
+      "source": "./",
+      "author": {
+        "name": "Sergio Santos"
+      }
+    }
+  ]
+}
