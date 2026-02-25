@@ -1,5 +1,12 @@
 # Changelog
 
+## [2026-02-25] - v1.0.1
+
+### Features
+- Onboard skill writes plan file incrementally — raw commits persisted to disk before grouping, each card appended as identified
+- `Grouping: in-progress/complete` marker enables session recovery if context is compacted mid-grouping
+- Onboard plan file (`.claude/jira-onboard-plan.md`) automatically gitignored
+
 ## [2026-02-25] - v1.0.0
 
 ### Features
