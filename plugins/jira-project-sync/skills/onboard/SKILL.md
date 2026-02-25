@@ -70,11 +70,12 @@ jql: "project = {PROJECT_KEY} ORDER BY created DESC"
 mkdir -p .claude
 ```
 
-Then ensure `.claude/jira-sync-state` is gitignored:
+Then ensure temp/state files are gitignored:
 
 ```bash
 # Add to .gitignore if not already present
 grep -qxF '.claude/jira-sync-state' .gitignore 2>/dev/null || echo '.claude/jira-sync-state' >> .gitignore
+grep -qxF '.claude/jira-onboard-plan.md' .gitignore 2>/dev/null || echo '.claude/jira-onboard-plan.md' >> .gitignore
 ```
 
 ```json
@@ -86,7 +87,7 @@ grep -qxF '.claude/jira-sync-state' .gitignore 2>/dev/null || echo '.claude/jira
 
 ### Step 7: Build import plan
 
-This step creates a persistent plan file so that the grouping survives context compaction.
+This step creates a persistent plan file **incrementally** so that work survives context compaction.
 
 #### 7a: Get full commit history
 
@@ -106,16 +107,11 @@ Read file: ${CLAUDE_PLUGIN_ROOT}/skills/onboard/references/commit-grouping.md
 
 Follow these rules exactly when grouping.
 
-#### 7c: Semantically group commits and save plan
+#### 7c: Initialize plan file with header and raw commits
 
-Analyze all commits and group them into logical cards based on the grouping rules:
-- Group by semantic topic (feature, bugfix area, infrastructure)
-- Use prefix hints (`feat:`, `fix:`, `docs:`, etc.)
-- Single-commit features get their own card
-- Related fixes/iterations go together
-- Max ~15 commits per card
+**Write the plan file immediately** with the header and raw commit list. This preserves the commit data even if context is compacted before grouping completes.
 
-**Write the plan to `.claude/jira-onboard-plan.md`** with this exact format:
+Write `.claude/jira-onboard-plan.md`:
 
 ```markdown
 # Jira Onboard Plan
@@ -123,26 +119,50 @@ Analyze all commits and group them into logical cards based on the grouping rule
 Project: {PROJECT_KEY}
 Cloud ID: {CLOUD_ID}
 Total commits: {N}
-Total cards: {M}
+Grouping: in-progress
+
+## Raw Commits
+
+- {hash1}|{date1}|{author1}|{message1}
+- {hash2}|{date2}|{author2}|{message2}
+...
 
 ## Cards
 
-### Card 1: {summary}
-Status: pending
-- {hash1}|{date}|{author}|{message}
-- {hash2}|{date}|{author}|{message}
-
-### Card 2: {summary}
-Status: pending
-- {hash3}|{date}|{author}|{message}
-
-...
 ```
 
-Each card section has:
-- A `### Card N: {summary}` heading with the Jira card summary
-- A `Status:` line — starts as `pending`, updated to `created:{ISSUE_KEY}` after creation
-- A list of commits belonging to that card (pipe-delimited)
+The `Grouping: in-progress` marker indicates that card grouping has not finished yet.
+
+#### 7d: Semantically group commits — write each card as you go
+
+Analyze commits and group them into logical cards based on the grouping rules:
+- Group by semantic topic (feature, bugfix area, infrastructure)
+- Use prefix hints (`feat:`, `fix:`, `docs:`, etc.)
+- Single-commit features get their own card
+- Related fixes/iterations go together
+- Max ~15 commits per card
+
+**IMPORTANT — Write incrementally:** As you identify each card group, **append it to the plan file immediately** before moving to the next group. Do NOT hold all cards in memory and write at the end.
+
+For each card group identified, append to the plan file:
+
+```markdown
+### Card N: {summary}
+Status: pending
+- {hash}|{date}|{author}|{message}
+- {hash}|{date}|{author}|{message}
+
+```
+
+After ALL cards have been written, update the header: change `Grouping: in-progress` to `Grouping: complete` and add `Total cards: {M}`.
+
+#### 7e: Verify plan completeness
+
+Confirm the plan file has `Grouping: complete` and all commits from the raw list are accounted for in card groups.
+
+**Recovery from compaction:** If the session is compacted or restarted mid-grouping, read `.claude/jira-onboard-plan.md`:
+- If `Grouping: complete` → proceed to Step 8
+- If `Grouping: in-progress` → the `## Raw Commits` section has the full commit list, and any cards already written under `## Cards` are preserved. Continue grouping only the commits not yet assigned to cards.
 
 **This file is the source of truth for the import.** If the session is compacted or restarted, read this file to resume where you left off.
 
