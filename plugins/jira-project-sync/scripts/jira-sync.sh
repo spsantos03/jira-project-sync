@@ -50,10 +50,18 @@ fi
 COUNT=$(echo "$COMMITS" | wc -l | tr -d ' ')
 CURRENT_HEAD=$(git rev-parse HEAD)
 
-# Build transition instruction if configured
+# Build transition instructions
 TRANSITION_INSTR=""
+DISCOVERY_BLOCK=""
 if [ -n "$TRANSITION_DONE_ID" ]; then
-  TRANSITION_INSTR="e transicione para Done (transition ID: $TRANSITION_DONE_ID)"
+  TRANSITION_INSTR=" e transicione para Done (transition ID: $TRANSITION_DONE_ID)"
+else
+  DISCOVERY_BLOCK="
+IMPORTANTE — Transition ID ainda nao configurado:
+Apos criar o PRIMEIRO card, use getTransitionsForJiraIssue para descobrir os transitions disponiveis.
+Encontre o transition onde statusCategory.key === \"done\" e salve o id.
+Atualize $CONFIG_FILE adicionando \"transitionDoneId\": \"<ID>\" ao JSON.
+Transicione esse card e todos os seguintes para Done usando o ID descoberto."
 fi
 
 # Instruct Claude to sync with Jira (stderr + exit 2 = output fed back to Claude)
@@ -70,7 +78,8 @@ Instrucoes:
 1. Busque issues existentes no $PROJECT (JQL: project = $PROJECT ORDER BY created DESC)
 2. Para cada commit acima, avalie semanticamente:
    - Se o assunto JA existe em um card → adicione o commit como comentario no card
-   - Se e assunto NOVO → crie um novo card (Task) com descricao detalhada${TRANSITION_INSTR:+ $TRANSITION_INSTR}
+   - Se e assunto NOVO → crie um novo card (Task) com descricao detalhada${TRANSITION_INSTR}${DISCOVERY_BLOCK:+
+$DISCOVERY_BLOCK}
 3. Apos concluir, atualize o arquivo $STATE_FILE com: $CURRENT_HEAD
 EOF
 exit 2
