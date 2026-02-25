@@ -23,11 +23,12 @@ Each project needs `.claude/jira-sync.json`:
 {
   "project": "PROJECT_KEY",
   "cloudId": "your-cloud-id",
-  "transitionDoneId": "31"
+  "transitionDoneId": null
 }
 ```
 
-Projects without this file are silently ignored.
+- `transitionDoneId` starts as `null` — discovered automatically on first push or during onboarding
+- Projects without this file are silently ignored
 
 ## Files
 
