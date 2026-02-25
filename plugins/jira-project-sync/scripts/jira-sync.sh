@@ -25,8 +25,8 @@ CLOUD_ID=$(jq -r '.cloudId // empty' "$CONFIG_FILE")
 TRANSITION_DONE_ID=$(jq -r '.transitionDoneId // empty' "$CONFIG_FILE")
 
 if [ -z "$PROJECT" ] || [ -z "$CLOUD_ID" ]; then
-  echo "JIRA_SYNC: ERROR — .claude/jira-sync.json missing 'project' or 'cloudId'."
-  exit 0
+  echo "JIRA_SYNC: ERROR — .claude/jira-sync.json missing 'project' or 'cloudId'." >&2
+  exit 2
 fi
 
 # State file tracking last synced commit
@@ -36,8 +36,8 @@ if [ -f "$STATE_FILE" ]; then
 else
   # First run: initialize with current HEAD (don't sync history)
   git rev-parse HEAD > "$STATE_FILE"
-  echo "JIRA_SYNC: State file inicializado para projeto $PROJECT. Proximos pushes serao sincronizados."
-  exit 0
+  echo "JIRA_SYNC: State file inicializado para projeto $PROJECT. Proximos pushes serao sincronizados." >&2
+  exit 2
 fi
 
 # Get new commits since last sync
@@ -56,8 +56,8 @@ if [ -n "$TRANSITION_DONE_ID" ]; then
   TRANSITION_INSTR="e transicione para Done (transition ID: $TRANSITION_DONE_ID)"
 fi
 
-# Instruct Claude to sync with Jira
-cat <<EOF
+# Instruct Claude to sync with Jira (stderr + exit 2 = output fed back to Claude)
+cat >&2 <<EOF
 JIRA_SYNC: $COUNT commit(s) novo(s) precisam ser sincronizados com Jira.
 
 Projeto: $PROJECT
@@ -73,3 +73,4 @@ Instrucoes:
    - Se e assunto NOVO → crie um novo card (Task) com descricao detalhada${TRANSITION_INSTR:+ $TRANSITION_INSTR}
 3. Apos concluir, atualize o arquivo $STATE_FILE com: $CURRENT_HEAD
 EOF
+exit 2
