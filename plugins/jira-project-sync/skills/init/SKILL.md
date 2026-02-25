@@ -59,33 +59,7 @@ jql: "project = {PROJECT_KEY} ORDER BY created DESC"
 - **If project exists:** Confirm to user and proceed.
 - **If project NOT found:** Tell the user to create the project in Jira UI first, then wait for them to confirm before continuing.
 
-### Step 6: Discover transition IDs
-
-You need an existing issue to query transitions. If step 5 returned issues, use one. If not, create a temporary issue:
-
-```
-Tool: mcp__plugin_atlassian_atlassian__createJiraIssue
-cloudId: {CLOUD_ID}
-projectKey: {PROJECT_KEY}
-issueTypeName: "Task"
-summary: "_temp: discovering transition IDs (will be deleted)"
-```
-
-Then get available transitions:
-
-```
-Tool: mcp__plugin_atlassian_atlassian__getTransitionsForJiraIssue
-cloudId: {CLOUD_ID}
-issueIdOrKey: {issue key}
-```
-
-Look for the transition where `statusCategory.key` is `"done"`. Save its `id` as the Done transition ID.
-
-Delete the temp issue after getting the transitions (or transition it to Done and leave it).
-
-**IMPORTANT:** "Done" is typically transition ID 41 in standard Jira workflows. Do NOT assume 31 (that is usually "In Progress").
-
-### Step 7: Write `.claude/jira-sync.json`
+### Step 6: Write `.claude/jira-sync.json`
 
 Create the per-project config file:
 
@@ -93,11 +67,13 @@ Create the per-project config file:
 {
   "project": "{PROJECT_KEY}",
   "cloudId": "{CLOUD_ID}",
-  "transitionDoneId": "{TRANSITION_DONE_ID}"
+  "transitionDoneId": null
 }
 ```
 
-### Step 8: Write `.claude/jira-sync-state`
+**Note:** `transitionDoneId` is null — it will be discovered automatically on the first `git push` via the sync hook.
+
+### Step 7: Write `.claude/jira-sync-state`
 
 **Use Bash for this** (the Write tool will fail on new files that haven't been read):
 
@@ -108,7 +84,7 @@ git rev-parse HEAD > .claude/jira-sync-state
 
 If no commits yet, skip this step (the hook will initialize it on first push).
 
-### Step 9: Detect tech stack
+### Step 8: Detect tech stack
 
 Check for the presence of these files to determine the tech stack:
 - `package.json` → Node.js / JavaScript / TypeScript
@@ -122,7 +98,7 @@ Check for the presence of these files to determine the tech stack:
 
 List all detected technologies.
 
-### Step 10: Create CLAUDE.md
+### Step 9: Create CLAUDE.md
 
 Generate a `CLAUDE.md` at the project root with:
 
@@ -159,7 +135,7 @@ Generate a `CLAUDE.md` at the project root with:
 > TODO: Add project-specific commands as they are established.
 ```
 
-### Step 11: Create .gitignore
+### Step 10: Create .gitignore
 
 Create a `.gitignore` with essentials (only if one doesn't already exist):
 
@@ -174,16 +150,17 @@ dist/
 build/
 .vscode/
 .idea/
+.claude/jira-sync-state
 ```
 
-### Step 12: Initial commit
+### Step 11: Initial commit
 
 ```bash
 git add -A
 git commit -m "chore: project init with Jira integration"
 ```
 
-### Step 13: Confirm
+### Step 12: Confirm
 
 Tell the user:
 > "Project initialized! Jira sync is configured for project {PROJECT_KEY}. Every `git push` will now automatically sync commits to Jira cards."
