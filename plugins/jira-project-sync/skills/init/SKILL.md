@@ -46,17 +46,15 @@ Extract the `id` field from the first accessible resource. This is the Cloud ID.
 
 ### Step 5: Verify Jira project exists
 
-Search for the project using JQL:
-
 ```
-Tool: mcp__plugin_atlassian_atlassian__searchJiraIssuesUsingJql
+Tool: mcp__plugin_atlassian_atlassian__getVisibleJiraProjects
 cloudId: {CLOUD_ID}
-jql: "project = {PROJECT_KEY} ORDER BY created DESC"
+searchString: "{PROJECT_KEY}"
 ```
 
-**Note:** Do NOT pass `maxResults` or `fields` parameters — they cause type errors. Just use `cloudId` and `jql`.
+**Warning:** Do NOT use `searchJiraIssuesUsingJql` for project verification — a JQL query against a non-existent project may return 0 results without erroring, creating a false positive. Always use `getVisibleJiraProjects` with `searchString`.
 
-- **If project exists:** Confirm to user and proceed.
+- **If the project key appears in the results:** Confirm to user and proceed.
 - **If project NOT found:** Tell the user to create the project in Jira UI first, then wait for them to confirm before continuing.
 
 ### Step 6: Write `.claude/jira-sync.json`
