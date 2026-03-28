@@ -2,8 +2,8 @@
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
-# Only trigger on git push
-if ! echo "$COMMAND" | grep -qE 'git\s+push'; then
+# Only trigger on git push (or gh repo create --push which pushes implicitly)
+if ! echo "$COMMAND" | grep -qE 'git\s+push|gh\s+repo\s+create\s.*--push'; then
   exit 0
 fi
 
@@ -76,9 +76,11 @@ $COMMITS
 
 Instrucoes:
 1. Busque issues existentes no $PROJECT (JQL: project = $PROJECT ORDER BY created DESC)
-2. Para cada commit acima, avalie semanticamente:
-   - Se o assunto JA existe em um card → adicione o commit como comentario no card
-   - Se e assunto NOVO → crie um novo card (Task) com descricao detalhada${TRANSITION_INSTR}${DISCOVERY_BLOCK:+
+2. Para cada commit acima, primeiro verifique se a mensagem contem uma referencia a ticket ($PROJECT-\d+):
+   - Se contem $PROJECT-XX → adicione o commit como comentario no ticket referenciado (NUNCA crie card novo)
+   - Se NAO contem referencia a ticket, avalie semanticamente:
+     - Se o assunto JA existe em um card → adicione o commit como comentario no card
+     - Se e assunto NOVO → crie um novo card (Task) com descricao detalhada${TRANSITION_INSTR}${DISCOVERY_BLOCK:+
 $DISCOVERY_BLOCK}
 3. Apos concluir, atualize o arquivo $STATE_FILE com: $CURRENT_HEAD
 EOF
