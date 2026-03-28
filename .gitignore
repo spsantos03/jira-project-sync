@@ -1,3 +1,5 @@
+.DS_Store
+
 # Jira sync state and temp files (local tracking, not source code)
 .claude/jira-sync-state
 .claude/jira-onboard-plan.md
