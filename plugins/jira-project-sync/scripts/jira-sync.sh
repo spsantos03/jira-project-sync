@@ -36,8 +36,8 @@ if [ -f "$STATE_FILE" ]; then
 else
   # First run: initialize with current HEAD (don't sync history)
   git rev-parse HEAD > "$STATE_FILE"
-  echo "JIRA_SYNC: State file inicializado para projeto $PROJECT. Proximos pushes serao sincronizados." >&2
-  exit 2
+  echo "JIRA_SYNC: State file inicializado para projeto $PROJECT. Proximos pushes serao sincronizados."
+  exit 0
 fi
 
 # Get new commits since last sync
@@ -64,8 +64,8 @@ Atualize $CONFIG_FILE adicionando \"transitionDoneId\": \"<ID>\" ao JSON.
 Transicione esse card e todos os seguintes para Done usando o ID descoberto."
 fi
 
-# Instruct Claude to sync with Jira (stderr + exit 2 = output fed back to Claude)
-cat >&2 <<EOF
+# Instruct Claude to sync with Jira (stdout + exit 0 = non-blocking feedback to Claude)
+cat <<EOF
 JIRA_SYNC: $COUNT commit(s) novo(s) precisam ser sincronizados com Jira.
 
 Projeto: $PROJECT
@@ -84,4 +84,4 @@ Instrucoes:
 $DISCOVERY_BLOCK}
 3. Apos concluir, atualize o arquivo $STATE_FILE com: $CURRENT_HEAD
 EOF
-exit 2
+exit 0
