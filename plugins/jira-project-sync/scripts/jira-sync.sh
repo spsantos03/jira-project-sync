@@ -48,7 +48,7 @@ COMMITS=$(git log --format="%h %ad %s" --date=short "$LAST_SYNC"..HEAD 2>/dev/nu
 if [ -z "$COMMITS" ]; then
   # No new commits — but check if there's a pending file from a failed sync
   if [ -f "$PENDING_FILE" ]; then
-    cat <<EOF
+    cat >&2 <<EOF
 JIRA_SYNC: AVISO — Sync pendente de sessao anterior detectado!
 
 O arquivo $PENDING_FILE contem commits que ainda NAO foram sincronizados com Jira.
@@ -60,6 +60,7 @@ Instrucoes:
 3. Apos sincronizar TODOS com sucesso, delete $PENDING_FILE e atualize $STATE_FILE
 4. Se o Atlassian MCP nao estiver disponivel agora, NAO delete o arquivo — ele sera reprocessado no proximo push
 EOF
+    exit 2
   fi
   exit 0
 fi
@@ -118,8 +119,8 @@ $DISCOVERY_BLOCK}
    - Os commits serao reprocessados no proximo push
 PENDING
 
-# Output instructions to Claude (stdout + exit 0 = non-blocking feedback)
-cat <<EOF
+# Output instructions to Claude (stderr + exit 2 = visible to model)
+cat >&2 <<EOF
 JIRA_SYNC: $COUNT commit(s) novo(s) precisam ser sincronizados com Jira.${PENDING_WARNING}
 
 Projeto: $PROJECT
@@ -147,4 +148,4 @@ $DISCOVERY_BLOCK}
    - NAO delete o arquivo pendente
    - Os commits serao reprocessados no proximo push
 EOF
-exit 0
+exit 2
