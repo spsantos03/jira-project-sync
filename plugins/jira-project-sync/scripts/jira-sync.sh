@@ -31,6 +31,8 @@ fi
 
 # State file tracking last synced commit
 STATE_FILE="$REPO_ROOT/.claude/jira-sync-state"
+PENDING_FILE="$REPO_ROOT/.claude/jira-sync-pending"
+
 if [ -f "$STATE_FILE" ]; then
   LAST_SYNC=$(cat "$STATE_FILE")
 else
@@ -44,6 +46,21 @@ fi
 COMMITS=$(git log --format="%h %ad %s" --date=short "$LAST_SYNC"..HEAD 2>/dev/null)
 
 if [ -z "$COMMITS" ]; then
+  # No new commits — but check if there's a pending file from a failed sync
+  if [ -f "$PENDING_FILE" ]; then
+    cat <<EOF
+JIRA_SYNC: AVISO — Sync pendente de sessao anterior detectado!
+
+O arquivo $PENDING_FILE contem commits que ainda NAO foram sincronizados com Jira.
+Isso pode ter acontecido porque o Atlassian MCP estava indisponivel na sessao anterior.
+
+Instrucoes:
+1. Leia o arquivo $PENDING_FILE para ver os commits pendentes
+2. Processe-os conforme as instrucoes no arquivo
+3. Apos sincronizar TODOS com sucesso, delete $PENDING_FILE e atualize $STATE_FILE
+4. Se o Atlassian MCP nao estiver disponivel agora, NAO delete o arquivo — ele sera reprocessado no proximo push
+EOF
+  fi
   exit 0
 fi
 
@@ -64,14 +81,24 @@ Atualize $CONFIG_FILE adicionando \"transitionDoneId\": \"<ID>\" ao JSON.
 Transicione esse card e todos os seguintes para Done usando o ID descoberto."
 fi
 
-# Instruct Claude to sync with Jira (stdout + exit 0 = non-blocking feedback to Claude)
-cat <<EOF
-JIRA_SYNC: $COUNT commit(s) novo(s) precisam ser sincronizados com Jira.
+# Check if there's already a pending file (previous sync failed)
+PENDING_WARNING=""
+if [ -f "$PENDING_FILE" ]; then
+  PENDING_WARNING="
+AVISO: Sync pendente de sessao anterior detectado em $PENDING_FILE.
+Os commits abaixo INCLUEM os pendentes anteriores (recalculados desde o ultimo sync bem-sucedido)."
+fi
 
-Projeto: $PROJECT
-Cloud ID: $CLOUD_ID
+# Write pending file — this persists until Claude confirms successful sync
+cat > "$PENDING_FILE" <<PENDING
+# Jira Sync Pending
+# Written: $(date -u '+%Y-%m-%dT%H:%M:%SZ')
+# Project: $PROJECT
+# Cloud ID: $CLOUD_ID
+# Last synced commit: $LAST_SYNC
+# Target state after sync: $CURRENT_HEAD
 
-Commits:
+Commits to sync:
 $COMMITS
 
 Instrucoes:
@@ -82,6 +109,42 @@ Instrucoes:
      - Se o assunto JA existe em um card → adicione o commit como comentario no card
      - Se e assunto NOVO → crie um novo card (Task) com descricao detalhada${TRANSITION_INSTR}${DISCOVERY_BLOCK:+
 $DISCOVERY_BLOCK}
-3. Apos concluir, atualize o arquivo $STATE_FILE com: $CURRENT_HEAD
+3. Apos sincronizar TODOS os commits com sucesso:
+   a. Atualize o state file: echo "$CURRENT_HEAD" > $STATE_FILE
+   b. Delete este arquivo pendente: rm $PENDING_FILE
+4. Se o Atlassian MCP NAO estiver disponivel:
+   - NAO atualize o state file
+   - NAO delete este arquivo
+   - Os commits serao reprocessados no proximo push
+PENDING
+
+# Output instructions to Claude (stdout + exit 0 = non-blocking feedback)
+cat <<EOF
+JIRA_SYNC: $COUNT commit(s) novo(s) precisam ser sincronizados com Jira.${PENDING_WARNING}
+
+Projeto: $PROJECT
+Cloud ID: $CLOUD_ID
+
+Commits:
+$COMMITS
+
+Um arquivo pendente foi salvo em: $PENDING_FILE
+Este arquivo persiste ate que o sync seja concluido com sucesso.
+
+Instrucoes:
+1. Busque issues existentes no $PROJECT (JQL: project = $PROJECT ORDER BY created DESC)
+2. Para cada commit acima, primeiro verifique se a mensagem contem uma referencia a ticket ($PROJECT-\d+):
+   - Se contem $PROJECT-XX → adicione o commit como comentario no ticket referenciado (NUNCA crie card novo)
+   - Se NAO contem referencia a ticket, avalie semanticamente:
+     - Se o assunto JA existe em um card → adicione o commit como comentario no card
+     - Se e assunto NOVO → crie um novo card (Task) com descricao detalhada${TRANSITION_INSTR}${DISCOVERY_BLOCK:+
+$DISCOVERY_BLOCK}
+3. Apos sincronizar TODOS os commits com sucesso:
+   a. Atualize o state file: echo "$CURRENT_HEAD" > $STATE_FILE
+   b. Delete o arquivo pendente: rm $PENDING_FILE
+4. Se o Atlassian MCP NAO estiver disponivel:
+   - NAO atualize o state file
+   - NAO delete o arquivo pendente
+   - Os commits serao reprocessados no proximo push
 EOF
 exit 0

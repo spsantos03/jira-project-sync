@@ -149,6 +149,7 @@ build/
 .vscode/
 .idea/
 .claude/jira-sync-state
+.claude/jira-sync-pending
 ```
 
 ### Step 11: Initial commit

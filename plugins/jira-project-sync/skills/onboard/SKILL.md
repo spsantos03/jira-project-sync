@@ -75,6 +75,7 @@ Then ensure temp/state files are gitignored:
 ```bash
 # Add to .gitignore if not already present
 grep -qxF '.claude/jira-sync-state' .gitignore 2>/dev/null || echo '.claude/jira-sync-state' >> .gitignore
+grep -qxF '.claude/jira-sync-pending' .gitignore 2>/dev/null || echo '.claude/jira-sync-pending' >> .gitignore
 grep -qxF '.claude/jira-onboard-plan.md' .gitignore 2>/dev/null || echo '.claude/jira-onboard-plan.md' >> .gitignore
 ```
 

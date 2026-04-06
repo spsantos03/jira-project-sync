@@ -2,4 +2,5 @@
 
 # Jira sync state and temp files (local tracking, not source code)
 .claude/jira-sync-state
+.claude/jira-sync-pending
 .claude/jira-onboard-plan.md
