@@ -13,6 +13,12 @@
       "description": "Automatic Jira synchronization for git projects. Syncs commits to Jira cards on every push, bootstraps new projects, and onboards existing repos with full commit history import.",
       "version": "1.0.0",
       "source": "./plugins/jira-project-sync"
+    },
+    {
+      "name": "doc-standard",
+      "description": "Standard documentation package generator. Creates user manual, admin manual, and developer handoff documentation by analyzing the actual codebase. Stack-agnostic.",
+      "version": "1.0.0",
+      "source": "./plugins/doc-standard"
     }
   ]
 }

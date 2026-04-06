@@ -1,0 +1,8 @@
+{
+  "name": "doc-standard",
+  "description": "Standard documentation package generator. Creates user manual, admin manual, and technical handoff documentation for any full-stack project.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Sergio Santos"
+  }
+}
