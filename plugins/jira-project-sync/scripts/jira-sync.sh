@@ -102,18 +102,25 @@ cat > "$PENDING_FILE" <<PENDING
 Commits to sync:
 $COMMITS
 
-Instrucoes:
-1. Busque issues existentes no $PROJECT (JQL: project = $PROJECT ORDER BY created DESC)
-2. Para cada commit acima, primeiro verifique se a mensagem contem uma referencia a ticket ($PROJECT-\d+):
-   - Se contem $PROJECT-XX → adicione o commit como comentario no ticket referenciado (NUNCA crie card novo)
-   - Se NAO contem referencia a ticket, avalie semanticamente:
-     - Se o assunto JA existe em um card → adicione o commit como comentario no card
-     - Se e assunto NOVO → crie um novo card (Task) com descricao detalhada${TRANSITION_INSTR}${DISCOVERY_BLOCK:+
+Instrucoes (operacoes via skill jira-project-sync:api - REST API por padrao, MCP fallback):
+1. Busque issues existentes no $PROJECT (api skill: "Search Issues by JQL" com "project = $PROJECT ORDER BY created DESC")
+2. Para cada commit acima, aplique o algoritmo da skill jira-project-sync:api (secao "Semantic Grouping Algorithm"):
+   a. Se o commit tem ref ($PROJECT-\d+):
+      - Leia titulo+descricao do ticket referenciado (api skill: "Get Issue")
+      - Se o escopo primario do commit cabe no ticket [LAYER 1] → comente nele (api skill: "Add Comment")
+      - Se NAO cabe → busque outros candidatos (api skill: "Search Issues by JQL"):
+        * Match encontrado [LAYER 2] → comente no candidato mencionando "see also $PROJECT-XX"
+        * Sem match [LAYER 3] → crie ticket novo (api skill: "Create Issue")${TRANSITION_INSTR} + link "Relates" para o ref (api skill: "Create Issue Link")
+   b. Se NAO tem ref → busca semantica em tickets existentes (api skill: "Search Issues by JQL"):
+      * Match [LAYER 2] → comente no candidato (api skill: "Add Comment")
+      * Sem match [LAYER 3] → crie ticket novo (api skill: "Create Issue")${TRANSITION_INSTR}${DISCOVERY_BLOCK:+
 $DISCOVERY_BLOCK}
+
+   Default conservador: na duvida sobre "cabe no escopo", comente no ticket referenciado. So divirja quando o commit eh claramente sobre outro topico.
 3. Apos sincronizar TODOS os commits com sucesso:
    a. Atualize o state file: echo "$CURRENT_HEAD" > $STATE_FILE
    b. Delete este arquivo pendente: rm $PENDING_FILE
-4. Se o Atlassian MCP NAO estiver disponivel:
+4. Se o sync NAO foi possivel (REST API e MCP fallback ambos indisponiveis):
    - NAO atualize o state file
    - NAO delete este arquivo
    - Os commits serao reprocessados no proximo push
@@ -132,18 +139,25 @@ $COMMITS
 Um arquivo pendente foi salvo em: $PENDING_FILE
 Este arquivo persiste ate que o sync seja concluido com sucesso.
 
-Instrucoes:
-1. Busque issues existentes no $PROJECT (JQL: project = $PROJECT ORDER BY created DESC)
-2. Para cada commit acima, primeiro verifique se a mensagem contem uma referencia a ticket ($PROJECT-\d+):
-   - Se contem $PROJECT-XX → adicione o commit como comentario no ticket referenciado (NUNCA crie card novo)
-   - Se NAO contem referencia a ticket, avalie semanticamente:
-     - Se o assunto JA existe em um card → adicione o commit como comentario no card
-     - Se e assunto NOVO → crie um novo card (Task) com descricao detalhada${TRANSITION_INSTR}${DISCOVERY_BLOCK:+
+Instrucoes (operacoes via skill jira-project-sync:api - REST API por padrao, MCP fallback):
+1. Busque issues existentes no $PROJECT (api skill: "Search Issues by JQL" com "project = $PROJECT ORDER BY created DESC")
+2. Para cada commit acima, aplique o algoritmo da skill jira-project-sync:api (secao "Semantic Grouping Algorithm"):
+   a. Se o commit tem ref ($PROJECT-\d+):
+      - Leia titulo+descricao do ticket referenciado (api skill: "Get Issue")
+      - Se o escopo primario do commit cabe no ticket [LAYER 1] → comente nele (api skill: "Add Comment")
+      - Se NAO cabe → busque outros candidatos (api skill: "Search Issues by JQL"):
+        * Match encontrado [LAYER 2] → comente no candidato mencionando "see also $PROJECT-XX"
+        * Sem match [LAYER 3] → crie ticket novo (api skill: "Create Issue")${TRANSITION_INSTR} + link "Relates" para o ref (api skill: "Create Issue Link")
+   b. Se NAO tem ref → busca semantica em tickets existentes (api skill: "Search Issues by JQL"):
+      * Match [LAYER 2] → comente no candidato (api skill: "Add Comment")
+      * Sem match [LAYER 3] → crie ticket novo (api skill: "Create Issue")${TRANSITION_INSTR}${DISCOVERY_BLOCK:+
 $DISCOVERY_BLOCK}
+
+   Default conservador: na duvida sobre "cabe no escopo", comente no ticket referenciado. So divirja quando o commit eh claramente sobre outro topico.
 3. Apos sincronizar TODOS os commits com sucesso:
    a. Atualize o state file: echo "$CURRENT_HEAD" > $STATE_FILE
    b. Delete o arquivo pendente: rm $PENDING_FILE
-4. Se o Atlassian MCP NAO estiver disponivel:
+4. Se o sync NAO foi possivel (REST API e MCP fallback ambos indisponiveis):
    - NAO atualize o state file
    - NAO delete o arquivo pendente
    - Os commits serao reprocessados no proximo push
