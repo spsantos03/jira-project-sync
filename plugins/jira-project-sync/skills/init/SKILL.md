@@ -36,26 +36,38 @@ Ask the user for:
 
 ### Step 4: Auto-detect Atlassian Cloud ID
 
-Use the Atlassian MCP tool `getAccessibleAtlassianResources` to fetch the user's Cloud ID.
+Use the `jira-project-sync:api` skill, "Get Cloud ID" recipe.
 
-```
-Tool: mcp__plugin_atlassian_atlassian__getAccessibleAtlassianResources
+```bash
+source ~/.claude/.env
+AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_API_TOKEN" | base64)
+CLOUD_ID=$(curl -s "https://api.atlassian.com/oauth/token/accessible-resources" \
+  -H "Authorization: Basic $AUTH" | jq -r '.[0].id')
+echo "$CLOUD_ID"
 ```
 
-Extract the `id` field from the first accessible resource. This is the Cloud ID.
+If the command returns null or empty, the env file is missing or the token is invalid — see api skill "Authentication" section.
+
+**Fallback:** If REST returns 429 (rate-limited), use MCP `getAccessibleAtlassianResources` and report the fallback to the user.
 
 ### Step 5: Verify Jira project exists
 
-```
-Tool: mcp__plugin_atlassian_atlassian__getVisibleJiraProjects
-cloudId: {CLOUD_ID}
-searchString: "{PROJECT_KEY}"
+Use the `jira-project-sync:api` skill, "Verify Project Exists" recipe.
+
+```bash
+HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
+  "https://$ATLASSIAN_SITE/rest/api/3/project/{PROJECT_KEY}" \
+  -H "Authorization: Basic $AUTH")
+echo "$HTTP"
 ```
 
-**Warning:** Do NOT use `searchJiraIssuesUsingJql` for project verification — a JQL query against a non-existent project may return 0 results without erroring, creating a false positive. Always use `getVisibleJiraProjects` with `searchString`.
+- **200** → project exists, proceed
+- **404** → project does not exist; tell the user to create it in Jira UI first, wait for confirmation
+- **401** → bad credentials; fix `~/.claude/.env`
 
-- **If the project key appears in the results:** Confirm to user and proceed.
-- **If project NOT found:** Tell the user to create the project in Jira UI first, then wait for them to confirm before continuing.
+**Warning:** Do NOT use JQL for project verification — a JQL query against a non-existent project may return 0 results without erroring (false positive).
+
+**Fallback:** MCP `getVisibleJiraProjects` with `searchString`.
 
 ### Step 6: Write `.claude/jira-sync.json`
 
