@@ -43,26 +43,38 @@ Ask the user for:
 
 ### Step 4: Auto-detect Atlassian Cloud ID
 
-Use the Atlassian MCP tool `getAccessibleAtlassianResources` to fetch the user's Cloud ID.
+Use the `jira-project-sync:api` skill, "Get Cloud ID" recipe.
 
-```
-Tool: mcp__plugin_atlassian_atlassian__getAccessibleAtlassianResources
+```bash
+source ~/.claude/.env
+AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_API_TOKEN" | base64)
+CLOUD_ID=$(curl -s "https://api.atlassian.com/oauth/token/accessible-resources" \
+  -H "Authorization: Basic $AUTH" | jq -r '.[0].id')
+echo "$CLOUD_ID"
 ```
 
-Extract the `id` field from the first accessible resource.
+If null/empty, the env file is missing or the token is invalid — see api skill "Authentication".
+
+**Fallback:** MCP `getAccessibleAtlassianResources` if REST returns 429.
 
 ### Step 5: Verify Jira project exists
 
-```
-Tool: mcp__plugin_atlassian_atlassian__getVisibleJiraProjects
-cloudId: {CLOUD_ID}
-searchString: "{PROJECT_KEY}"
+Use the `jira-project-sync:api` skill, "Verify Project Exists" recipe.
+
+```bash
+HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
+  "https://$ATLASSIAN_SITE/rest/api/3/project/{PROJECT_KEY}" \
+  -H "Authorization: Basic $AUTH")
+echo "$HTTP"
 ```
 
-**Warning:** Do NOT use `searchJiraIssuesUsingJql` for project verification — a JQL query against a non-existent project may return 0 results without erroring, creating a false positive. Always use `getVisibleJiraProjects` with `searchString`.
+- **200** → project exists, proceed
+- **404** → tell the user to create it in Jira UI first, wait for confirmation
+- **401** → bad credentials; fix `~/.claude/.env`
 
-- **If the project key appears in the results:** Confirm and proceed.
-- **If NOT found:** Tell user to create the project in Jira UI first, wait for confirmation.
+**Warning:** Do NOT use JQL for project verification — false positives on non-existent projects.
+
+**Fallback:** MCP `getVisibleJiraProjects` with `searchString` if REST returns 429.
 
 ### Step 6: Write `.claude/jira-sync.json`
 
@@ -171,53 +183,76 @@ Confirm the plan file has `Grouping: complete` and all commits from the raw list
 
 Read `.claude/jira-onboard-plan.md` and process each card with `Status: pending`:
 
+**Note on semantic grouping for onboard:** Onboard creates the initial card set from scratch — there are no existing tickets to comment on. The Semantic Grouping Algorithm in the `jira-project-sync:api` skill applies to the *ongoing* sync hook (every push), NOT to onboard's initial import. For onboard, grouping was already done in Step 7d using `commit-grouping.md` rules; Step 8 simply creates one Jira card per group.
+
+All Jira operations below use REST API recipes from the api skill. MCP remains as fallback (use only if REST returns 429).
+
 #### First pending card (with transition discovery):
 
-1. **Create the Jira issue** (same as normal):
+1. **Create the Jira issue** using the api skill "Create Issue" recipe.
 
+The description must be ADF (Atlassian Document Format). Build it with `jq` to handle escaping safely:
+
+```bash
+source ~/.claude/.env
+AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_API_TOKEN" | base64)
+
+DESC_TEXT="Commits imported from git history:
+
+| Hash | Date | Author | Message |
+|------|------|--------|---------|
+| {hash} | {date} | {author} | {message} |
+..."
+
+PAYLOAD=$(jq -n \
+  --arg projectKey "$PROJECT_KEY" \
+  --arg summary "$CARD_SUMMARY" \
+  --arg desc "$DESC_TEXT" '{
+    fields: {
+      project: {key: $projectKey},
+      issuetype: {name: "Task"},
+      summary: $summary,
+      description: {
+        type: "doc",
+        version: 1,
+        content: [{type: "paragraph", content: [{type: "text", text: $desc}]}]
+      }
+    }
+  }')
+
+NEW_KEY=$(curl -s -X POST "https://$ATLASSIAN_SITE/rest/api/3/issue" \
+  -H "Authorization: Basic $AUTH" \
+  -H "Content-Type: application/json" \
+  -d "$PAYLOAD" | jq -r '.key')
+echo "Created: $NEW_KEY"
 ```
-Tool: mcp__plugin_atlassian_atlassian__createJiraIssue
-cloudId: {CLOUD_ID}
-projectKey: {PROJECT_KEY}
-issueTypeName: "Task"
-summary: {card summary from plan}
-description: |
-  Commits imported from git history:
 
-  | Hash | Date | Author | Message |
-  |------|------|--------|---------|
-  | {hash} | {date} | {author} | {message} |
-  ...
+2. **Discover transition Done ID** using the api skill "Get Transitions" recipe:
+
+```bash
+DISCOVERED_ID=$(curl -s "https://$ATLASSIAN_SITE/rest/api/3/issue/$NEW_KEY/transitions" \
+  -H "Authorization: Basic $AUTH" \
+  | jq -r '.transitions[] | select(.to.statusCategory.key == "done") | .id' | head -1)
+echo "$DISCOVERED_ID"
 ```
 
-**Note:** Use `issueTypeName` (not `issueType`). Always include `cloudId`.
-
-2. **Discover transition Done ID:**
-
-```
-Tool: mcp__plugin_atlassian_atlassian__getTransitionsForJiraIssue
-cloudId: {CLOUD_ID}
-issueIdOrKey: {newly created issue key}
-```
-
-Look for the transition where `statusCategory.key` is `"done"`. Save its `id` as the Done transition ID.
-
-**Warning:** Do NOT hardcode or assume a specific transition ID. Always discover it dynamically from the `statusCategory.key === "done"` match.
+**Warning:** Do NOT hardcode or assume a specific transition ID. Always discover it dynamically from the `statusCategory.key == "done"` match.
 
 3. **Update `.claude/jira-sync.json`:** Add `"transitionDoneId": "{DISCOVERED_ID}"` to the config JSON.
 
 4. **Update the plan file header:** Add `Transition Done ID: {DISCOVERED_ID}` line.
 
-5. **Transition to Done:**
+5. **Transition to Done** using the api skill "Transition Issue" recipe:
 
-```
-Tool: mcp__plugin_atlassian_atlassian__transitionJiraIssue
-cloudId: {CLOUD_ID}
-issueIdOrKey: {newly created issue key}
-transition: {"id": "{DISCOVERED_ID}"}
+```bash
+curl -s -o /dev/null -w "%{http_code}" -X POST \
+  "https://$ATLASSIAN_SITE/rest/api/3/issue/$NEW_KEY/transitions" \
+  -H "Authorization: Basic $AUTH" \
+  -H "Content-Type: application/json" \
+  -d "{\"transition\": {\"id\": \"$DISCOVERED_ID\"}}"
 ```
 
-**IMPORTANT:** The `transition` parameter must be an object `{"id": "41"}`, NOT a flat string. And `transitionId` is NOT a valid parameter — use `transition` instead.
+204 = success. Note the `transition` field is an object `{"id": "..."}`, not a flat string.
 
 6. **Update the plan file:** Change `Status: pending` to `Status: created:{ISSUE_KEY}` for that card.
 
@@ -225,15 +260,16 @@ transition: {"id": "{DISCOVERED_ID}"}
 
 For each remaining card with `Status: pending`:
 
-1. **Create the Jira issue** (same tool call as above)
+1. **Create the Jira issue** using the same `curl` recipe as the first card (api skill "Create Issue"). Reuse `$DISCOVERED_ID` from the first card — no need to re-discover.
 
-2. **Transition to Done** using the discovered transition ID:
+2. **Transition to Done** using the discovered transition ID (api skill "Transition Issue"):
 
-```
-Tool: mcp__plugin_atlassian_atlassian__transitionJiraIssue
-cloudId: {CLOUD_ID}
-issueIdOrKey: {newly created issue key}
-transition: {"id": "{DISCOVERED_ID}"}
+```bash
+curl -s -o /dev/null -w "%{http_code}" -X POST \
+  "https://$ATLASSIAN_SITE/rest/api/3/issue/$NEW_KEY/transitions" \
+  -H "Authorization: Basic $AUTH" \
+  -H "Content-Type: application/json" \
+  -d "{\"transition\": {\"id\": \"$DISCOVERED_ID\"}}"
 ```
 
 3. **Update the plan file:** Change `Status: pending` to `Status: created:{ISSUE_KEY}` for that card.

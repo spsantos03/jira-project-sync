@@ -2,6 +2,16 @@
 
 When importing commit history into Jira cards, group commits **semantically** — by topic, feature area, or purpose — not chronologically or arbitrarily.
 
+## Relationship to the api skill SSOT
+
+This file covers the **initial import** case (onboard): how to cluster N raw commits into M card summaries when no Jira tickets exist yet.
+
+For the **ongoing sync** case (hook on every push), the algorithm lives in the `jira-project-sync:api` skill, section "Semantic Grouping Algorithm". That algorithm decides ref vs no-ref, comment-on-existing vs create-new, with link-to-ref logic.
+
+The two are complementary, not duplicates:
+- **commit-grouping.md (this file):** "How do I cluster N raw commits into M card summaries?"
+- **api skill Semantic Grouping Algorithm:** "Given one commit and a set of existing tickets, what action do I take?"
+
 ## Grouping Strategy
 
 ### 1. Prefix-based hints
