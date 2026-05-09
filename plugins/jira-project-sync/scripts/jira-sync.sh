@@ -2,8 +2,26 @@
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
-# Only trigger on git push (or gh repo create --push which pushes implicitly)
-if ! echo "$COMMAND" | grep -qE 'git\s+push|gh\s+repo\s+create\s.*--push'; then
+# Detect push triggers without false-positives from heredoc bodies or quoted
+# strings. Split COMMAND by shell separators (&&, ||, ;, |) and check each
+# subcommand's "safe prefix" — the substring before any quoting, heredoc
+# marker, or command substitution. A commit message mentioning "git push"
+# (e.g., in meta-documentation) does NOT trigger; a real `git push` does.
+TMP="${COMMAND//&&/$'\n'}"
+TMP="${TMP//||/$'\n'}"
+TMP="${TMP//;/$'\n'}"
+TMP="${TMP//|/$'\n'}"
+
+TRIGGER=0
+while IFS= read -r SUBCMD; do
+  SAFE_PREFIX=$(echo "$SUBCMD" | sed -E "s/['\"\`].*//; s/<<.*//; s/[\$][(].*//")
+  if echo "$SAFE_PREFIX" | grep -qE '^[[:space:]]*(git[[:space:]]+push\b|gh[[:space:]]+repo[[:space:]]+create\b.*--push)'; then
+    TRIGGER=1
+    break
+  fi
+done <<< "$TMP"
+
+if [ "$TRIGGER" -eq 0 ]; then
   exit 0
 fi
 
