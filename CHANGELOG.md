@@ -1,5 +1,10 @@
 # Changelog
 
+## [2026-05-09] - v1.1.1
+
+### Bug Fixes
+- **Hook no longer false-triggers on text mentioning push commands.** Previously, a `git commit` whose message body contained literal `git push` or `gh repo create --push` text (e.g., meta-documentation about the plugin itself, or `curl` payloads passing such text in JSON) would falsely fire the sync hook. The trigger now inspects the bash command's *output* (`tool_response.stdout` + `stderr`) for actual push signatures — `To <remote>`, `Everything up-to-date`, `Pushed commits to` — instead of parsing the input command string. False positives from commit messages, JSON payloads, heredoc bodies, and quoted text are now structurally impossible. Includes input-based fallback for Claude Code versions that don't expose `tool_response`.
+
 ## [2026-05-09] - v1.1.0
 
 ### Features
