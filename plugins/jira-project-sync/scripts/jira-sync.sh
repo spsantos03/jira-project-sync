@@ -2,24 +2,44 @@
 INPUT=$(cat)
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 
-# Detect push triggers without false-positives from heredoc bodies or quoted
-# strings. Split COMMAND by shell separators (&&, ||, ;, |) and check each
-# subcommand's "safe prefix" — the substring before any quoting, heredoc
-# marker, or command substitution. A commit message mentioning "git push"
-# (e.g., in meta-documentation) does NOT trigger; a real `git push` does.
-TMP="${COMMAND//&&/$'\n'}"
-TMP="${TMP//||/$'\n'}"
-TMP="${TMP//;/$'\n'}"
-TMP="${TMP//|/$'\n'}"
+# Primary trigger signal: check the BASH COMMAND OUTPUT for evidence that a
+# push actually happened. Examining the output (rather than parsing the
+# input command string) eliminates false positives from commit messages,
+# curl payloads, heredoc bodies, or any other text that mentions push
+# commands without actually invoking them.
+RESULT=$(echo "$INPUT" | jq -r '.tool_response.content // .tool_result.content // .tool_response // .tool_result // empty')
+
+# DEBUG: temporary one-shot dump to verify field name on the next hook fire.
+# Remove this block after observing /tmp/jira-sync-hook-debug.json.
+if [ ! -f /tmp/jira-sync-hook-debug.json ]; then
+  echo "$INPUT" > /tmp/jira-sync-hook-debug.json
+fi
 
 TRIGGER=0
-while IFS= read -r SUBCMD; do
-  SAFE_PREFIX=$(echo "$SUBCMD" | sed -E "s/['\"\`].*//; s/<<.*//; s/[\$][(].*//")
-  if echo "$SAFE_PREFIX" | grep -qE '^[[:space:]]*(git[[:space:]]+push\b|gh[[:space:]]+repo[[:space:]]+create\b.*--push)'; then
+if [ -n "$RESULT" ]; then
+  # Real push signatures:
+  #   git push success:        "To github.com:user/repo.git"  (or gitlab/bitbucket/git@/https)
+  #   git push up-to-date:     "Everything up-to-date"
+  #   gh repo create --push:   "Pushed commits to <url>"
+  if echo "$RESULT" | grep -qE '^To (github|gitlab|bitbucket)\.com|^To git@|^To https?://|^Everything up-to-date|Pushed commits to'; then
     TRIGGER=1
-    break
   fi
-done <<< "$TMP"
+else
+  # Fallback: input-based check, kept for compatibility with Claude Code
+  # versions that don't expose the tool result. Less accurate — heredoc
+  # bodies and quoted strings can leak trigger words.
+  TMP="${COMMAND//&&/$'\n'}"
+  TMP="${TMP//||/$'\n'}"
+  TMP="${TMP//;/$'\n'}"
+  TMP="${TMP//|/$'\n'}"
+  while IFS= read -r SUBCMD; do
+    SAFE_PREFIX=$(echo "$SUBCMD" | sed -E "s/['\"\`].*//; s/<<.*//; s/[\$][(].*//")
+    if echo "$SAFE_PREFIX" | grep -qE '^[[:space:]]*(git[[:space:]]+push\b|gh[[:space:]]+repo[[:space:]]+create\b.*--push)'; then
+      TRIGGER=1
+      break
+    fi
+  done <<< "$TMP"
+fi
 
 if [ "$TRIGGER" -eq 0 ]; then
   exit 0
