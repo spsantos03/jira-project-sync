@@ -7,13 +7,11 @@ COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 # input command string) eliminates false positives from commit messages,
 # curl payloads, heredoc bodies, or any other text that mentions push
 # commands without actually invoking them.
-RESULT=$(echo "$INPUT" | jq -r '.tool_response.content // .tool_result.content // .tool_response // .tool_result // empty')
-
-# DEBUG: temporary one-shot dump to verify field name on the next hook fire.
-# Remove this block after observing /tmp/jira-sync-hook-debug.json.
-if [ ! -f /tmp/jira-sync-hook-debug.json ]; then
-  echo "$INPUT" > /tmp/jira-sync-hook-debug.json
-fi
+#
+# The Bash tool exposes its result as `.tool_response.stdout` and
+# `.tool_response.stderr`. `git push` writes its progress to stderr by
+# default, so we concatenate both streams for matching.
+RESULT=$(echo "$INPUT" | jq -r '((.tool_response.stdout // "") + "\n" + (.tool_response.stderr // ""))')
 
 TRIGGER=0
 if [ -n "$RESULT" ]; then
