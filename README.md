@@ -59,12 +59,19 @@ chmod 600 ~/.claude/.env
 
 ```bash
 source ~/.claude/.env
-curl -s "https://api.atlassian.com/oauth/token/accessible-resources" \
+
+# 1. Credentials — should print your display name
+curl -s "https://$ATLASSIAN_SITE/rest/api/3/myself" \
   -H "Authorization: Basic $(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_API_TOKEN" | base64)" \
-  | jq -r '.[0].id'
+  | jq -r '.displayName'
+
+# 2. Cloud ID — should print a UUID
+curl -s "https://$ATLASSIAN_SITE/_edge/tenant_info" | jq -r '.cloudId'
 ```
 
-If this returns a UUID (your Cloud ID), you're set.
+If you get a name and a UUID, you're set.
+
+> **Note:** don't verify with `api.atlassian.com/oauth/token/accessible-resources` — it accepts only OAuth Bearer tokens and returns `401` for a valid API token, which makes a working setup look broken. The `_edge/tenant_info` endpoint above is the API-token-friendly way to get the Cloud ID.
 
 #### Optional: Atlassian MCP plugin (fallback)
 

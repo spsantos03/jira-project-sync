@@ -47,15 +47,15 @@ Use the `jira-project-sync:api` skill, "Get Cloud ID" recipe.
 
 ```bash
 source ~/.claude/.env
-AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_API_TOKEN" | base64)
-CLOUD_ID=$(curl -s "https://api.atlassian.com/oauth/token/accessible-resources" \
-  -H "Authorization: Basic $AUTH" | jq -r '.[0].id')
+CLOUD_ID=$(curl -s "https://$ATLASSIAN_SITE/_edge/tenant_info" | jq -r '.cloudId')
 echo "$CLOUD_ID"
 ```
 
-If null/empty, the env file is missing or the token is invalid — see api skill "Authentication".
+Unauthenticated and site-scoped. **Do NOT use `api.atlassian.com/oauth/token/accessible-resources`** — it is OAuth-Bearer-only and 401s with the API token in `~/.claude/.env`.
 
-**Fallback:** MCP `getAccessibleAtlassianResources` if REST returns 429.
+If null/empty, `ATLASSIAN_SITE` is wrong or unset. Check the token separately with `GET /rest/api/3/myself`.
+
+**Fallback:** MCP `getAccessibleAtlassianResources`.
 
 ### Step 5: Verify Jira project exists
 
@@ -69,7 +69,7 @@ echo "$HTTP"
 ```
 
 - **200** → project exists, proceed
-- **404** → tell the user to create it in Jira UI first, wait for confirmation
+- **404** → create it with the api skill's **"Create Project"** recipe (discover template keys at `/rest/project-templates/1.0/templates`; never guess them). Do not defer to the Jira UI. Verify the new project has a board and the full issue type set before continuing
 - **401** → bad credentials; fix `~/.claude/.env`
 
 **Warning:** Do NOT use JQL for project verification — false positives on non-existent projects.

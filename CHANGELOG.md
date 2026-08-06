@@ -1,5 +1,24 @@
 # Changelog
 
+## [2026-08-06] - v1.2.0
+
+### Bug Fixes
+- **`Get Cloud ID` recipe could never succeed.** The `api` skill, `init` Step 4, `onboard` Step 4, and the README's setup-verification block all called `api.atlassian.com/oauth/token/accessible-resources` with Basic auth. That endpoint accepts **only** OAuth Bearer tokens, so it returns `401 Unauthorized` for the API token in `~/.claude/.env` — 100% of the time, regardless of credential validity. Replaced everywhere with `GET https://$ATLASSIAN_SITE/_edge/tenant_info`, which is unauthenticated, site-scoped, and returns `{"cloudId": "..."}`. The README instance was the most damaging: it was the *verification* step, so a correctly-configured user was told their setup was broken. Token validity now checked separately via `GET /rest/api/3/myself`.
+- **Project creation was wrongly routed to the Jira UI.** `init` Step 5, `onboard` Step 5, and the api skill's `Verify Project Exists` recipe all instructed, on 404, to stop and have the user create the project by hand. Projects are creatable over REST; the blocker was an undocumented template key. Both skills now create the project themselves and verify the result.
+
+### Features
+- **New `Create Project` recipe** in the `api` skill (SSOT). Covers template-key *discovery* via `GET /rest/project-templates/1.0/templates` — note the path is `project-templates`, not `jira-project-templates`, which 404s — plus the create call, post-create verification, and a permissions pre-check. Documents that valid software template keys live under the **`com.pyxis.greenhopper.jira`** plugin (GreenHopper, JIRA Agile's original name, never renamed); `com.pyxis.jira:*` is a plausible-looking invention that exists on no Jira instance.
+- **New `Delete Project` recipe.** Documents that deletion is two-phase: a plain `DELETE` only trashes the project, leaving its issue type scheme associated and its key reserved, so recreation under the same key fails and the scheme refuses to delete with a 400. `?enableUndo=false` purges. Also covers the orphaned site-level objects Jira never removes — board filters and issue type schemes — which, left behind, force the next same-key project's scheme to be named `{KEY}: Kanban Issue Type Scheme (1)`.
+- `init` now creates the `gitignore/` folder and ignores it plus `.DS_Store`, per the standing project convention.
+
+### Documentation
+- **Two failure modes named explicitly** in the api skill's error reference, both learned the hard way:
+  - *A 2xx is not proof the intent was satisfied.* `POST /rest/api/3/project` **without** `projectTemplateKey` returns `201` but produces a project with no board and only a `Task` + `Sub-task` issue type scheme. It is indistinguishable from a healthy project through the top-level `GET /project/{KEY}` fields. Verify resulting state, not status codes.
+  - *An error message may describe a symptom, not the cause.* `400 "The project template specified does not exist"` nearly always means a wrong plugin prefix, not a missing template. A malformed key fails differently (`500 Invalid module key specified`), which distinguishes the two.
+- `init` Step 7 / Step 11 reconciled: Step 7 only applies when initializing over an existing repo. For a brand-new project the state file is now written in Step 11, after the initial commit — previously it was skipped in Step 7 and never written at all.
+- `init` Step 11 documents the bootstrap commit as the single sanctioned exception to the "every commit references a ticket" rule.
+- `init` Step 12 now reports the actual board and issue types, and flags when the repo has no remote (the sync hook cannot fire without one).
+
 ## [2026-05-09] - v1.1.1
 
 ### Bug Fixes

@@ -45,15 +45,15 @@ Discover the Atlassian Cloud ID for the user's site. Use during init/onboard.
 
 ```bash
 source ~/.claude/.env
-AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_API_TOKEN" | base64)
 
-curl -s "https://api.atlassian.com/oauth/token/accessible-resources" \
-  -H "Authorization: Basic $AUTH" | jq -r '.[0].id'
+curl -s "https://$ATLASSIAN_SITE/_edge/tenant_info" | jq -r '.cloudId'
 ```
 
-Returns the Cloud ID string (UUID format). If the command returns null or empty, the env file is missing or the token is invalid.
+Returns the Cloud ID string (UUID format). This endpoint is unauthenticated and site-scoped, so it needs no `AUTH` header.
 
-**Fallback:** MCP `getAccessibleAtlassianResources`.
+**Do NOT use `api.atlassian.com/oauth/token/accessible-resources` here.** That endpoint accepts *only* OAuth Bearer tokens. `~/.claude/.env` holds an API token used via Basic auth, so it returns `401 Unauthorized` every time — it cannot work with this plugin's credentials, and a 401 there does **not** mean the token is bad. Verify the token separately with `GET /rest/api/3/myself`.
+
+**Fallback:** MCP `getAccessibleAtlassianResources` (this is OAuth-based and does return the Cloud ID).
 
 ---
 
@@ -73,12 +73,124 @@ curl -s -o /dev/null -w "%{http_code}" \
 | HTTP Code | Meaning |
 |-----------|---------|
 | 200 | Project exists, proceed |
-| 404 | Project does not exist; tell the user to create it in Jira UI first |
+| 404 | Project does not exist — create it with the "Create Project" recipe below |
 | 401 | Bad credentials; fix `~/.claude/.env` |
 
 **Warning:** Do NOT use JQL for project verification — a JQL query against a non-existent project may return 0 results without erroring (false positive).
 
 **Fallback:** MCP `getVisibleJiraProjects` with `searchString`.
+
+---
+
+### Create Project
+
+Create a Jira project over REST. **Do not send the user to the Jira UI for this** — the API creates a fully-configured project (board, filter, issue type scheme) in one call, provided the template key is right.
+
+**Step 1 — discover valid template keys. Never guess them.**
+
+```bash
+source ~/.claude/.env
+AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_API_TOKEN" | base64)
+
+curl -s "https://$ATLASSIAN_SITE/rest/project-templates/1.0/templates" \
+  -H "Authorization: Basic $AUTH" \
+  | jq -r '.projectTemplatesGroupedByType[]
+           | .projectTypeBean.projectTypeKey as $t
+           | .projectTemplates[]?
+           | "\($t)\t\(.projectTemplateModuleCompleteKey)\t\(.name)"'
+```
+
+Note the path is `project-templates`, **not** `jira-project-templates` (that 404s). Software template keys live under the **`com.pyxis.greenhopper.jira`** plugin — GreenHopper was JIRA Agile's original name and the module key was never renamed:
+
+| Template key | Board |
+|---|---|
+| `com.pyxis.greenhopper.jira:gh-kanban-template` | Kanban (company-managed) |
+| `com.pyxis.greenhopper.jira:gh-scrum-template` | Scrum (company-managed) |
+| `com.pyxis.greenhopper.jira:basic-software-development-template` | Bug tracking |
+| `com.pyxis.greenhopper.jira:simplified-project-template` | Agility (team-managed) |
+
+**Step 2 — create.** Match the template to the site's existing convention; check an existing project's board type first if unsure.
+
+```bash
+source ~/.claude/.env
+AUTH=$(echo -n "$ATLASSIAN_EMAIL:$ATLASSIAN_API_TOKEN" | base64)
+LEAD=$(curl -s "https://$ATLASSIAN_SITE/rest/api/3/myself" -H "Authorization: Basic $AUTH" | jq -r '.accountId')
+
+curl -s -X POST "https://$ATLASSIAN_SITE/rest/api/3/project" \
+  -H "Authorization: Basic $AUTH" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"key\": \"{PROJECT_KEY}\",
+    \"name\": \"{PROJECT_NAME}\",
+    \"description\": \"{SHORT_DESCRIPTION}\",
+    \"projectTypeKey\": \"software\",
+    \"projectTemplateKey\": \"com.pyxis.greenhopper.jira:gh-kanban-template\",
+    \"leadAccountId\": \"$LEAD\",
+    \"assigneeType\": \"PROJECT_LEAD\"
+  }" | jq '{id, key}'
+```
+
+**Step 3 — verify the template actually applied.** A 201 alone is not proof:
+
+```bash
+curl -s "https://$ATLASSIAN_SITE/rest/api/3/project/{PROJECT_KEY}" \
+  -H "Authorization: Basic $AUTH" | jq -r '[.issueTypes[].name] | join(", ")'
+curl -s "https://$ATLASSIAN_SITE/rest/agile/1.0/board?projectKeyOrId={PROJECT_KEY}" \
+  -H "Authorization: Basic $AUTH" | jq -r '.values[] | "\(.type)\t\(.name)"'
+```
+
+Expect the full issue type set (`Task, Sub-task, Story, Bug, Epic`) and a `{KEY} board`.
+
+**Error decoding — the messages mislead:**
+
+| Response | Real cause |
+|---|---|
+| 400 `"The project template specified does not exist"` | Key is well-formed but not installed. **Almost always a wrong plugin prefix.** `com.pyxis.jira:*` does not exist on any Jira — re-run Step 1. |
+| 500 `"Invalid module key specified"` | Key isn't `plugin:module` shaped at all. |
+| 400 `"Project '<name>' uses this project key"` | Key taken — including by a **trashed** project (see "Delete Project"). |
+| 201 with no `projectTemplateKey` sent | **False success.** Jira creates the project but with no board and only a `Task` + `Sub-task` scheme. Always send a template key. |
+
+**Permissions:** requires `ADMINISTER` / `CREATE_PROJECT`. Check with `GET /rest/api/3/mypermissions?permissions=ADMINISTER,CREATE_PROJECT` before concluding a template is missing.
+
+**No MCP fallback — MCP doesn't expose project creation.**
+
+---
+
+### Delete Project
+
+**Destructive — always confirm with the user, and check the project is empty first:**
+
+```bash
+curl -s -G "https://$ATLASSIAN_SITE/rest/api/3/search/jql" -H "Authorization: Basic $AUTH" \
+  --data-urlencode "jql=project={PROJECT_KEY}" --data-urlencode "maxResults=5" | jq '.issues | length'
+```
+
+Deletion is **two-phase**. A plain `DELETE` only moves the project to trash — its issue type scheme stays associated and its key stays reserved, so recreating with the same key fails:
+
+```bash
+# Phase 1+2 in one call: delete and purge, skipping the trash
+curl -s -o /dev/null -w "%{http_code}\n" -X DELETE \
+  "https://$ATLASSIAN_SITE/rest/api/3/project/{PROJECT_ID}?enableUndo=false" \
+  -H "Authorization: Basic $AUTH"
+```
+
+204 = success. If a project was already trashed with a plain `DELETE`, re-issue the call with `?enableUndo=false` to purge it.
+
+**Then clean up the orphans — Jira does not remove them:**
+
+```bash
+# Issue type scheme (fails with 400 while the project is still in trash — purge first)
+curl -s -o /dev/null -w "%{http_code}\n" -X DELETE \
+  "https://$ATLASSIAN_SITE/rest/api/3/issuetypescheme/{SCHEME_ID}" -H "Authorization: Basic $AUTH"
+
+# Board filter, named "Filter for {KEY} board"
+curl -s -o /dev/null -w "%{http_code}\n" -X DELETE \
+  "https://$ATLASSIAN_SITE/rest/api/3/filter/{FILTER_ID}" -H "Authorization: Basic $AUTH"
+```
+
+Leftover schemes and filters are site-level and outlive their project. If not cleaned up, the stale name collides and the next project with that key gets a scheme named `{KEY}: Kanban Issue Type Scheme (1)`.
+
+**No MCP fallback.**
 
 ---
 
@@ -590,8 +702,10 @@ Manual ADF tables are very verbose. For commit-history tables (used by onboard i
 
 | Operation | Default | Fallback |
 |-----------|---------|----------|
-| Get Cloud ID | REST | MCP `getAccessibleAtlassianResources` |
+| Get Cloud ID | REST (`_edge/tenant_info`) | MCP `getAccessibleAtlassianResources` |
 | Verify project | REST | MCP `getVisibleJiraProjects` |
+| Create project | REST (only) | — |
+| Delete project | REST (only) | — |
 | Search issues (JQL) | REST | MCP `searchJiraIssuesUsingJql` |
 | Get issue | REST | MCP `getJiraIssue` |
 | Create issue | REST | MCP `createJiraIssue` |
@@ -614,8 +728,13 @@ Use MCP only when REST returns 429 and retry budget is exhausted, or when the us
 | 200 | Success (with content) | — |
 | 201 | Created | — |
 | 204 | Success (no content) | — |
-| 400 | Bad request | Check the JSON payload — likely missing required fields or invalid ADF |
-| 401 | Auth failed | Check `ATLASSIAN_EMAIL` and `ATLASSIAN_API_TOKEN` in `~/.claude/.env` |
+| 400 | Bad request | Check the JSON payload — likely missing required fields or invalid ADF. On project creation, see the Create Project error table: the template message is usually a wrong plugin prefix |
+| 401 | Auth failed | Check `ATLASSIAN_EMAIL` and `ATLASSIAN_API_TOKEN` in `~/.claude/.env`. **Exception:** `api.atlassian.com/oauth/token/accessible-resources` 401s even with valid credentials — it is OAuth-only. Confirm the token with `GET /rest/api/3/myself` before assuming it's bad |
 | 403 | No permission | User lacks the required Jira permission for this operation |
-| 404 | Not found | Issue/comment/project doesn't exist or was already deleted |
+| 404 | Not found | Issue/comment/project doesn't exist or was already deleted. Also returned for wrong endpoint paths — e.g. `jira-project-templates` instead of `project-templates` |
 | 429 | Rate limited | Back off and retry; if persistent, fall back to MCP for read operations |
+| 500 | `Invalid module key specified` | A `projectTemplateKey` that isn't `plugin:module` shaped |
+
+**Two traps worth naming explicitly:**
+- **A 2xx is not proof the intent was satisfied.** Project creation without `projectTemplateKey` returns 201 and yields an unusable project. Verify the resulting state, not just the status code.
+- **An error message may describe a symptom, not the cause.** "Template does not exist" nearly always means the prefix was invented. Discover identifiers from the API instead of recalling them.
