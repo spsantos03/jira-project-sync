@@ -1,5 +1,14 @@
 # Changelog
 
+## [2026-09-24] - v1.2.2
+
+### Bug Fixes
+- **The hook synced the session's cwd repo, not the repo that was pushed.** It resolved the repo with a bare `git rev-parse --show-toplevel`, i.e. from the hook process's cwd — the session cwd. For `cd other-repo && git push`, `git -C other-repo push`, or any harness that resets the shell cwd after each command, it evaluated the wrong repo; when that repo had nothing new it exited 0, and the pushed repo's sync was lost without a word. Observed live: pushing `jira-project-sync` (JPSP-28) from a session in another project wrote no pending file and moved no state. The hook now gathers candidates (`cd`/`pushd`/`git -C` targets in the command, followed in sequence; the input's `cwd`; its own cwd) and picks the one whose remote matches the `To <url>` of the push output, with ssh/https/port/`.git` variants normalized. It then works from that repo, and names it (`Repo:`) in the instructions it prints.
+- **A push the hook can't place now warns instead of exiting silently.** If the output shows a push but no candidate owns that remote, the hook reports the URL and the candidates it checked (exit 2), so a synced repo can't drop out unnoticed.
+
+### Features
+- **`tests/test-hook-repo-resolution.sh`** — first test for the hook. Each bug case runs against the current hook (must pass) **and** the pre-fix hook from `45954dd` (must fail): if the old hook passes, the fixture doesn't reproduce the bug. A fixture guard asserts the decoy repo has nothing to sync, the condition behind the old silent exit. Verified further by mutation: making URL normalization the identity, or skipping the `cd` into the resolved repo, each turns cases red.
+
 ## [2026-09-24] - v1.2.1
 
 ### Bug Fixes

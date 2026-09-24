@@ -170,9 +170,10 @@ The sync state is tracked in `.claude/jira-sync-state` (the hash of the last syn
 The plugin registers a PostToolUse hook that runs after every Bash command in Claude Code. The hook:
 
 1. Checks if the command was `git push` — exits silently for anything else
-2. Looks for `.claude/jira-sync.json` in the repo root — exits silently if missing
-3. Reads new commits since the last sync
-4. Outputs instructions to Claude (via stderr + exit code 2) telling it to sync with Jira
+2. Resolves the **pushed** repo, not its own cwd: it collects the `cd`/`pushd`/`git -C` targets in the command plus the session cwd, and picks the one whose remote matches the `To <url>` in the push output (ssh and https forms compare equal). If a push happened but no candidate owns that remote, it warns instead of exiting silently
+3. Looks for `.claude/jira-sync.json` in that repo root — exits silently if missing
+4. Reads new commits since the last sync
+5. Outputs instructions to Claude (via stderr + exit code 2) telling it to sync with Jira
 
 ### Semantic grouping
 
@@ -204,6 +205,8 @@ The plugin doesn't hardcode any Jira workflow values. The "Done" transition ID i
 jira-project-sync/
 ├── .claude-plugin/
 │   └── marketplace.json         # Marketplace manifest
+├── tests/
+│   └── test-hook-repo-resolution.sh  # Hook resolves the pushed repo; each case must also fail on the pre-fix hook
 └── plugins/jira-project-sync/
     ├── .claude-plugin/
     │   └── plugin.json          # Plugin manifest

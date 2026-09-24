@@ -43,11 +43,88 @@ if [ "$TRIGGER" -eq 0 ]; then
   exit 0
 fi
 
-# Find git repo root
-REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+# Find the repo that was PUSHED — not the hook's own cwd. The hook runs in
+# the session's cwd, which is often not where the push happened
+# (`cd other-repo && git push`, `git -C other-repo push`, or a harness that
+# resets the shell cwd after each command). Resolving from our own cwd
+# would sync the wrong repo, and exit silently if it had nothing new.
+
+# normalize_url URL → lowercase host/path, without scheme, user, port or .git,
+# so `git@github.com:u/r.git` and `https://github.com/u/r` compare equal.
+normalize_url() {
+  echo "$1" | sed -E 's#^[a-z+]+://##; s#^[^@/]+@##; s#^([^/:]+):[0-9]+/#\1/#; s#^([^/:]+):#\1/#; s#\.git/?$##; s#/$##' \
+    | tr '[:upper:]' '[:lower:]'
+}
+
+# first_word STRING → the first shell word, with surrounding quotes removed
+first_word() {
+  local s="$1"
+  case "$s" in
+    \"*) s="${s#\"}"; echo "${s%%\"*}" ;;
+    \'*) s="${s#\'}"; echo "${s%%\'*}" ;;
+    *)   echo "${s%%[[:space:]]*}" ;;
+  esac
+}
+
+# URLs the push output says were pushed to ("To <url>", "Pushed commits to <url>")
+PUSHED_URLS=""
+while IFS= read -r U; do
+  [ -n "$U" ] && PUSHED_URLS="$PUSHED_URLS$(normalize_url "$U")"$'\n'
+done <<< "$(echo "$RESULT" | sed -nE 's/^To ([^[:space:]]+).*/\1/p; s/.*Pushed commits to ([^[:space:]]+).*/\1/p')"
+
+# Candidate dirs: every `cd`/`pushd`/`git -C` target in the command (followed
+# in sequence, so relative paths chain), newest first; then the session cwd.
+INPUT_CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
+CUR="${INPUT_CWD:-$PWD}"
+CANDS=""
+RE_CD='^(cd|pushd)[[:space:]]+(.+)$'
+RE_GIT_C='git[[:space:]]+-C[[:space:]]+(.+)$'
+SEGS="${COMMAND//&&/$'\n'}"; SEGS="${SEGS//||/$'\n'}"; SEGS="${SEGS//;/$'\n'}"; SEGS="${SEGS//|/$'\n'}"
+while IFS= read -r SEG; do
+  SEG="${SEG#"${SEG%%[![:space:]]*}"}"
+  ARG=""
+  if [[ $SEG =~ $RE_CD ]]; then ARG=$(first_word "${BASH_REMATCH[2]}"); IS_CD=1
+  elif [[ $SEG =~ $RE_GIT_C ]]; then ARG=$(first_word "${BASH_REMATCH[1]}"); IS_CD=0
+  fi
+  [ -z "$ARG" ] && continue
+  case "$ARG" in "~"|"~/"*) ARG="$HOME${ARG#\~}" ;; esac
+  ARG="${ARG/#\$HOME/$HOME}"
+  [ "${ARG#/}" = "$ARG" ] && ARG="$CUR/$ARG"
+  [ "$IS_CD" = 1 ] && CUR="$ARG"
+  CANDS="$ARG"$'\n'"$CANDS"
+done <<< "$SEGS"
+CANDS="$CANDS${INPUT_CWD:+$INPUT_CWD$'\n'}$PWD"
+
+REPO_ROOT=""
+while IFS= read -r DIR; do
+  TOP=$(git -C "$DIR" rev-parse --show-toplevel 2>/dev/null) || continue
+  if [ -z "$PUSHED_URLS" ]; then
+    REPO_ROOT="$TOP"; break   # no URL to match (e.g. input-based trigger): take the likeliest
+  fi
+  while IFS= read -r R; do
+    if [ -n "$R" ] && echo "$PUSHED_URLS" | grep -qxF "$(normalize_url "$R")"; then
+      REPO_ROOT="$TOP"; break 2
+    fi
+  done <<< "$(git -C "$TOP" remote -v | awk '{print $2}' | sort -u)"
+done <<< "$CANDS"
+
 if [ -z "$REPO_ROOT" ]; then
+  if [ -n "$PUSHED_URLS" ]; then
+    # A push happened but no local repo we can see owns that remote. Say so —
+    # a silent exit here is how a Jira-synced repo loses its sync unnoticed.
+    cat >&2 <<EOF
+JIRA_SYNC: AVISO — push detectado para: $(echo "$PUSHED_URLS" | tr '\n' ' ')
+mas nenhum repo local candidato tem esse remote. Candidatos verificados:
+$CANDS
+
+Se esse repo tem .claude/jira-sync.json, sincronize manualmente a partir dele.
+Se nao tem (repo sem integracao Jira), ignore este aviso.
+EOF
+    exit 2
+  fi
   exit 0
 fi
+cd "$REPO_ROOT" || exit 0
 
 # Per-project config — skip silently if not configured
 CONFIG_FILE="$REPO_ROOT/.claude/jira-sync.json"
@@ -167,6 +244,7 @@ cat >&2 <<EOF
 JIRA_SYNC: $COUNT commit(s) novo(s) precisam ser sincronizados com Jira.${PENDING_WARNING}
 
 Projeto: $PROJECT
+Repo: $REPO_ROOT
 Cloud ID: $CLOUD_ID
 
 Commits:
