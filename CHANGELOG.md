@@ -1,5 +1,14 @@
 # Changelog
 
+## [2026-09-24] - v1.2.3
+
+### Bug Fixes
+- **Plugin updates never delivered hook fixes.** `hooks/hooks.json` was empty (`{"hooks": {}}`) while the README called it the hook registration; the real hook lived in `~/.claude/settings.json`, pointing at a hard-coded cache path (`…/jira-project-sync/1.0.0/scripts/jira-sync.sh`). The installed plugin itself was stuck at 1.0.0 (Feb 2026), so every release since — skills and hook alike — reached the running system only by hand-copying files into that cache directory. The hook is now registered in the plugin's own `hooks.json` via `${CLAUDE_PLUGIN_ROOT}`, so `claude plugin update` ships it with everything else.
+- Inner `plugins/jira-project-sync/.claude-plugin/marketplace.json` still declared `1.0.0`; aligned with `plugin.json` (flagged by `claude plugin validate`).
+
+### Breaking Changes
+- **Remove the hand-registered hook from `~/.claude/settings.json` after updating** — otherwise it fires twice per push (plugin + settings), and the settings copy keeps running stale code. See README → Installation.
+
 ## [2026-09-24] - v1.2.2
 
 ### Bug Fixes

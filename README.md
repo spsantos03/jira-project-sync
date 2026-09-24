@@ -93,6 +93,10 @@ You need an existing Jira project (Software type) to sync to. Create one in your
 claude /install-plugin https://github.com/spsantos03/jira-project-sync
 ```
 
+The sync hook ships inside the plugin (`hooks/hooks.json`) — no `settings.json` edit is needed, and `claude plugin update jira-project-sync@local-plugins` delivers hook fixes along with everything else.
+
+**Upgrading from ≤ 1.2.2?** Earlier setups registered the hook by hand in `~/.claude/settings.json` (`PostToolUse` → `…/jira-project-sync/1.0.0/scripts/jira-sync.sh`). Remove that entry after updating, or the hook fires twice per push — and the hand-registered copy never receives fixes.
+
 ## Usage
 
 ### Onboard an existing repo
