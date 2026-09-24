@@ -9,6 +9,9 @@
 ### Breaking Changes
 - **Remove the hand-registered hook from `~/.claude/settings.json` after updating** — otherwise it fires twice per push (plugin + settings), and the settings copy keeps running stale code. See README → Installation.
 
+### Documentation
+- **Local install note: the `local-plugins` marketplace was a symlink to this working repo.** Updates therefore installed the working tree (uncommitted edits included), and `claude plugin marketplace update` always failed with "corrupted installLocation", because Claude Code checks the marketplace's *real* path and it pointed outside `~/.claude/plugins/marketplaces/`. That is the most likely reason releases were hand-copied. Fixed by removing and re-adding the marketplace from GitHub (`claude plugin marketplace add spsantos03/jira-project-sync`): updates now install only **pushed** commits. Two traps for anyone repeating this: `marketplace remove` **uninstalls and disables** every plugin from that marketplace (reinstall both `jira-project-sync` and `doc-standard`), and if the install location is a symlink, delete the link yourself first so the removal cannot reach the repo behind it.
+
 ## [2026-09-24] - v1.2.2
 
 ### Bug Fixes
