@@ -27,7 +27,7 @@ Each project needs `.claude/jira-sync.json`:
 }
 ```
 
-- `transitionDoneId` starts as `null` — discovered automatically on first push or during onboarding
+- `transitionDoneId` starts as `null` — filled by `init` (from its bootstrap card) or `onboard` (from the first imported card); the hook discovers it on the next push if still `null`
 - Projects without this file are silently ignored
 
 ## Files

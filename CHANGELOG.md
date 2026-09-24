@@ -1,5 +1,17 @@
 # Changelog
 
+## [2026-09-24] - v1.2.1
+
+### Bug Fixes
+- **`init`'s bootstrap commit never got a Jira card.** Step 11 promised that "the first `git push` will create the initial card", but the hook syncs `git log LAST_SYNC..HEAD`, and no state-file value can make that range contain the bootstrap commit: at HEAD the range is empty; with no state file the hook initializes it to HEAD and exits; and `A..B` never includes `A`, so a root commit fits in no range. Every project bootstrapped since v1.2.0 left its first commit unsynced (found while initializing IPMS, whose IPMS-1 had to be created by hand). `init` now creates the bootstrap card via the API **before** the initial commit, commits as `chore({KEY}-1): …`, then comments and transitions the card itself, verifying the resulting status.
+- **`transitionDoneId` stayed `null` after `init`.** Discovery was deferred to "the first push" — the same push that had nothing to sync. `init` now discovers it from the bootstrap card, the same real-card approach `onboard` uses, so it still creates no temporary issue (the constraint behind the original deferral). The hook's lazy discovery remains as a fallback for older projects.
+
+### Removals
+- The "one sanctioned exception" to the ticket-first rule. The Jira project exists from Step 5, so the bootstrap commit can reference a ticket like any other.
+
+### Documentation
+- READMEs corrected: the state file is written by the skills, not "on first push", and the hook never backfills history; transition discovery now documents `init` → bootstrap card with the hook as fallback.
+
 ## [2026-08-06] - v1.2.0
 
 ### Bug Fixes

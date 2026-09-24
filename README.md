@@ -151,14 +151,15 @@ Each synced project has `.claude/jira-sync.json`:
 |-------|-------------|
 | `project` | Your Jira project key (e.g., `WEB`) |
 | `cloudId` | Atlassian Cloud ID — auto-detected during setup |
-| `transitionDoneId` | Jira transition ID for "Done" status. `null` on first setup — discovered automatically on first push |
+| `transitionDoneId` | Jira transition ID for "Done" status. Filled by `init`/`onboard` from the first real card; if still `null`, the hook discovers it on the next push |
 
 **Projects without this file are silently ignored** — the plugin only activates for configured projects.
 
 ### State file
 
 The sync state is tracked in `.claude/jira-sync-state` (the hash of the last synced commit). This file:
-- Is created automatically on first push
+- Is written by `init`/`onboard` right after their last commit; if missing, the hook creates it at the current HEAD on the next push (it never backfills history)
+- Only commits *after* the recorded hash are synced — which is why `init` cards its bootstrap commit itself instead of leaving it to the hook
 - Should be in `.gitignore` (both skills set this up automatically)
 - Is local to each developer — not shared via git
 
@@ -193,7 +194,8 @@ Documented in `skills/onboard/references/commit-grouping.md`.
 The plugin doesn't hardcode any Jira workflow values. The "Done" transition ID is discovered dynamically:
 
 - **Onboard:** Discovered from the first real card created during import
-- **Init:** Deferred to the first `git push`, where the hook instructs Claude to discover and cache it
+- **Init:** Discovered from the bootstrap card (`{KEY}-1`) that init creates before the initial commit
+- **Fallback:** If `transitionDoneId` is still `null` (e.g. a project initialized before v1.2.1), the hook instructs Claude to discover and cache it on the next push
 - Once discovered, the ID is saved in `jira-sync.json` and reused for all future syncs
 
 ## Plugin Structure

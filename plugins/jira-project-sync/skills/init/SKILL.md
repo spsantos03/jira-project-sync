@@ -100,7 +100,7 @@ Create the per-project config file:
 }
 ```
 
-**Note:** `transitionDoneId` is null — it will be discovered automatically on the first `git push` via the sync hook.
+**Note:** `transitionDoneId` starts as null and is filled in Step 11, discovered from the bootstrap card before the initial commit. (The hook's lazy discovery on push remains as a fallback for projects initialized before v1.2.1.)
 
 ### Step 7: Write `.claude/jira-sync-state`
 
@@ -189,24 +189,36 @@ Also create the `gitignore/` folder itself (`mkdir -p gitignore`) — it holds l
 
 **`.claude/jira-sync-state` must be gitignored** — versioning it causes a commit → sync → state → commit loop. `.claude/jira-sync.json` *is* versioned. Verify with `git check-ignore -v .claude/jira-sync-state`.
 
-### Step 11: Initial commit
+### Step 11: Bootstrap card, then initial commit
+
+**The sync hook can never create a card for this commit** — do it here, directly. The hook syncs `git log LAST_SYNC..HEAD`, and that range structurally excludes the bootstrap commit: with the state file at HEAD the range is empty; with no state file the hook initializes it to HEAD and exits; and `A..B` never includes `A`, so a root commit fits in no range at all. Deferring the card to "the first push" leaves it permanently unsynced.
+
+The Jira project exists since Step 5, so the ticket-first rule applies here like anywhere else — there is no bootstrap exception.
+
+**11a. Create the bootstrap card** (api skill: "Create Issue") — issue type `Task`, summary `Project setup: git repo and Jira sync`, description naming what the commit contains. Record its key as `BOOT_KEY` (normally `{PROJECT_KEY}-1`).
+
+**11b. Discover the Done transition from that card** (api skill: "Get Transitions") — pick the transition whose `to.statusCategory.key == "done"` and write its id into `.claude/jira-sync.json` as `transitionDoneId` (a string, e.g. `"41"`). This is a real card, not a throwaway, so discovery costs no temporary issue.
+
+**11c. Commit with the ref:**
 
 ```bash
 git add -A
-git commit -m "chore: project init with Jira integration"
+git commit -m "chore({BOOT_KEY}): project init with Jira integration"
 ```
 
-This bootstrap commit is the **one sanctioned exception** to the "every commit references a ticket" rule — the project has no tickets yet. The first `git push` will create the initial card for it. Every commit after this one must carry a `{PROJECT_KEY}-N` ref.
-
-Then record the synced commit so the hook doesn't reprocess history:
+**11d. Record the state, then sync the card by hand** — the state file first, so the hook won't reprocess this commit later:
 
 ```bash
 git rev-parse HEAD > .claude/jira-sync-state
 ```
 
+Then comment the commit (`<short hash> <subject>`) on `BOOT_KEY` (api skill: "Add Comment") and transition it to Done (api skill: "Transition Issue"). Re-read the issue and confirm its status is Done — a 204 on the transition is not the check.
+
+`BOOT_KEY` also serves as the catch-all card for later infrastructure commits that don't earn their own ticket.
+
 ### Step 12: Confirm
 
 Tell the user, filling in what was actually created:
-> "Project initialized! Jira sync is configured for project {PROJECT_KEY} ({BOARD_NAME}, issue types: {ISSUE_TYPES}). Every `git push` will now automatically sync commits to Jira cards, using the `{PROJECT_KEY}-N` commit convention."
+> "Project initialized! Jira sync is configured for project {PROJECT_KEY} ({BOARD_NAME}, issue types: {ISSUE_TYPES}). The initial commit is on {BOOT_KEY} (Done); `transitionDoneId` is {ID}. Every `git push` will now automatically sync commits to Jira cards, using the `{PROJECT_KEY}-N` commit convention."
 
-If the repo has no remote yet, say so — the sync hook can't fire until there's something to push to.
+If the repo has no remote yet, say so — nothing is lost (the bootstrap card already exists), but later commits won't sync until there is something to push to.
