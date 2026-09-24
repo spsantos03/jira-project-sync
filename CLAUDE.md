@@ -20,7 +20,7 @@ Claude Code plugin marketplace (`local-plugins`) hosting two plugins: **`jira-pr
 2. Bump the version in **all three** places: `plugins/jira-project-sync/.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, and `plugins/jira-project-sync/.claude-plugin/marketplace.json`. Run `claude plugin validate plugins/jira-project-sync` — it flags mismatches.
 3. `CHANGELOG.md` entry (`## [YYYY-MM-DD] - vX.Y.Z`); README if behavior or setup changed.
 4. **Push**, then install: `claude plugin marketplace update local-plugins && claude plugin update jira-project-sync@local-plugins`, then **restart Claude Code** (hooks and skills load at session start). The marketplace is a GitHub clone: **only pushed commits install**.
-5. Verify in the restarted session with a real push: exactly one `JIRA_SYNC` message, from `cache/local-plugins/jira-project-sync/<version>/`.
+5. Verify in the restarted session with a real push: exactly one `JIRA_SYNC` message, from `cache/local-plugins/jira-project-sync/<version>/`. If the release touched the **trigger**, make that verification push the shape the fix is about (e.g. `git push 2>&1 | tail -1` for JPSP-32) — a normal push still shows `To <url>` and proves nothing about the new path.
 
 Never hand-copy files into `~/.claude/plugins/cache/…` and never register the hook in `~/.claude/settings.json` — that is how releases silently stopped reaching the running system until v1.2.3 (JPSP-30).
 
