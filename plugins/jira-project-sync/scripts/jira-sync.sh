@@ -13,30 +13,54 @@ COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
 # default, so we concatenate both streams for matching.
 RESULT=$(echo "$INPUT" | jq -r '((.tool_response.stdout // "") + "\n" + (.tool_response.stderr // ""))')
 
+# is_push_command CMD → true if the command itself invokes `git push` (or
+# `gh repo create --push`). Heredoc bodies, quoted strings and $(…) are
+# removed first, so text that merely MENTIONS a push can't match — a heredoc
+# body line reading "git push" used to trigger a sync on silent commands.
+# Accepts `git -C <path> push` and leading VAR=value assignments.
+is_push_command() {
+  local line delim="" kept="" seg
+  local re_heredoc='<<-?[[:space:]]*["'"'"']?([A-Za-z_][A-Za-z0-9_]*)'
+  local re_push='^([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*(git([[:space:]]+-C[[:space:]]+[^[:space:]]*)?[[:space:]]+push([[:space:]]|$)|gh[[:space:]]+repo[[:space:]]+create[[:space:]].*--push)'
+  while IFS= read -r line; do
+    if [ -n "$delim" ]; then
+      [ "$(echo "$line" | tr -d '[:space:]')" = "$delim" ] && delim=""
+      continue
+    fi
+    [[ $line =~ $re_heredoc ]] && delim="${BASH_REMATCH[1]}"
+    kept="$kept$line"$'\n'
+  done <<< "$1"
+  kept=$(printf '%s' "$kept" | sed -E "s/'[^']*'//g; s/\"[^\"]*\"//g; s/\\\$\\([^)]*\\)//g")
+  kept="${kept//&&/$'\n'}"; kept="${kept//||/$'\n'}"; kept="${kept//;/$'\n'}"; kept="${kept//|/$'\n'}"
+  while IFS= read -r seg; do
+    seg="${seg#"${seg%%[![:space:]]*}"}"
+    [[ $seg =~ $re_push ]] && return 0
+  done <<< "$kept"
+  return 1
+}
+
+# Trigger, strongest evidence first:
+#   1. The output names a completed push:
+#        "To <remote>"            git push (stderr)
+#        "Everything up-to-date"  git push, nothing new
+#        "Pushed commits to <url>" gh repo create --push
+#   2. The command really invokes git push AND the output was cut down
+#      (`| tail -1` leaves only a ref-update line: "a..b  main -> main",
+#      "* [new branch] …", "+ a...b … (forced update)") or silenced entirely
+#      (`>/dev/null 2>&1`). The command check is required: fetch and pull
+#      print the very same ref-update lines.
+#   Still missed, by design: a push whose output is filtered down to lines
+#   that prove nothing (e.g. `| grep -c`). Keep push output unfiltered.
+RE_STRONG='^To (github|gitlab|bitbucket)\.com|^To git@|^To https?://|^Everything up-to-date|Pushed commits to'
+RE_REFLINE='^[[:space:]]*([+*=][[:space:]]+)?(\[new (branch|tag|reference)\]|[0-9a-f]{7,}\.\.\.?[0-9a-f]{7,})[[:space:]]+[^[:space:]]+[[:space:]]+->[[:space:]]+[^[:space:]]+'
+
 TRIGGER=0
-if [ -n "$RESULT" ]; then
-  # Real push signatures:
-  #   git push success:        "To github.com:user/repo.git"  (or gitlab/bitbucket/git@/https)
-  #   git push up-to-date:     "Everything up-to-date"
-  #   gh repo create --push:   "Pushed commits to <url>"
-  if echo "$RESULT" | grep -qE '^To (github|gitlab|bitbucket)\.com|^To git@|^To https?://|^Everything up-to-date|Pushed commits to'; then
+if echo "$RESULT" | grep -qE "$RE_STRONG"; then
+  TRIGGER=1
+elif is_push_command "$COMMAND"; then
+  if [ -z "${RESULT//[[:space:]]/}" ] || echo "$RESULT" | grep -qE "$RE_REFLINE"; then
     TRIGGER=1
   fi
-else
-  # Fallback: input-based check, kept for compatibility with Claude Code
-  # versions that don't expose the tool result. Less accurate — heredoc
-  # bodies and quoted strings can leak trigger words.
-  TMP="${COMMAND//&&/$'\n'}"
-  TMP="${TMP//||/$'\n'}"
-  TMP="${TMP//;/$'\n'}"
-  TMP="${TMP//|/$'\n'}"
-  while IFS= read -r SUBCMD; do
-    SAFE_PREFIX=$(echo "$SUBCMD" | sed -E "s/['\"\`].*//; s/<<.*//; s/[\$][(].*//")
-    if echo "$SAFE_PREFIX" | grep -qE '^[[:space:]]*(git[[:space:]]+push\b|gh[[:space:]]+repo[[:space:]]+create\b.*--push)'; then
-      TRIGGER=1
-      break
-    fi
-  done <<< "$TMP"
 fi
 
 if [ "$TRIGGER" -eq 0 ]; then

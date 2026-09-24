@@ -1,5 +1,18 @@
 # Changelog
 
+## [2026-09-24] - v1.2.4
+
+### Bug Fixes
+- **Truncated push output never triggered the sync.** The trigger only recognized `To <remote>` / `Everything up-to-date` / `Pushed commits to`. `git push 2>&1 | tail -1` leaves just the ref-update line (`7dd4454..5de5248  main -> main`), so the hook exited 0 — indistinguishable from "nothing to sync". It happened for real on the JPSP-31 push. The hook now also triggers on ref-update lines (`a..b`, `a...b` forced, `* [new branch|tag]`) **when the command itself invokes `git push`** — fetch and pull print identical lines, so the output alone is not evidence.
+- **Three live false positives in the input fallback** (used when the output is empty): a `git push` line inside a heredoc body, a separator inside quotes (`echo "done; git push origin main"`), and — the other direction — a quiet push through a quoted `git -C "<path with spaces>" push` that was *missed*, because the old parser cut everything after the first quote. The command parser now strips heredoc bodies, quoted strings and `$(…)` before matching, and accepts `git -C <path> push` and leading `VAR=value` assignments.
+- Correction to the JPSP-32 ticket's premise: the input fallback was *not* dead code — `$(…)` strips the lone newline between stdout and stderr, so fully empty output did reach it. The red test run showed this; the case was reclassified as preserved behavior.
+
+### Features
+- **`tests/test-hook-push-detection.sh`** (11 cases) and **`tests/lib.sh`** (shared fixture + two-sided runner; `test-hook-repo-resolution.sh` now uses it). Every fixture target has unsynced commits, so a silent exit 0 can't pass a "should have synced" case; `case_no_push` was tightened accordingly. Five mutations of the fix (drop the command gate, keep heredoc bodies, keep quoted strings, drop the silent-output branch, drop `-C` support) each turn cases red; one first survived and exposed a weak case, which was fixed.
+
+### Documentation
+- Known residual gap, by design: output filtered down to lines that prove nothing (`| grep -c`) still doesn't trigger. Keep push output unfiltered.
+
 ## [2026-09-24] - v1.2.3
 
 ### Bug Fixes

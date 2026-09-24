@@ -27,15 +27,16 @@ Never hand-copy files into `~/.claude/plugins/cache/…` and never register the 
 ## Testing
 
 ```bash
-tests/test-hook-repo-resolution.sh
+for t in tests/test-*.sh; do $t || echo "FAILED: $t"; done
 ```
 
-Each bug case runs against the current hook (must pass) **and** the pre-fix hook from git (must fail) — the counterproof that the fixture reproduces the bug. New hook bugs get a case here with the same two-sided shape; a case the old hook also passes protects nothing. Test fixtures commit with `-c core.hooksPath=/dev/null` (only fixtures — never real commits).
+Shared fixture and runner live in `tests/lib.sh`; each test file calls `run_suite <pre-fix commit> "<discriminating cases>" "<preserved cases>"`. Discriminating cases must pass on the current hook **and fail** on the pre-fix hook from git — the counterproof that the fixture reproduces the bug; a case the old hook also passes protects nothing. Classify cases by running them against the old hook, not by intuition (JPSP-32's red run moved two cases). The target repo in every fixture has unsynced commits, so a silent `exit 0` can never pass a "should have synced" case by accident. Test fixtures commit with `-c core.hooksPath=/dev/null` (only fixtures — never real commits).
 
 ## Invariants (learned the hard way)
 
 - **The hook can never sync a repo's first commit.** It syncs `git log LAST_SYNC..HEAD`, and `A..B` never contains `A`. Anything that must reach Jira for the bootstrap commit is done by `init` itself (JPSP-28).
 - **The hook's cwd is not the pushed repo.** Harnesses reset the shell cwd after each command, and `cd x && git push` / `git -C x push` push elsewhere. Resolve the repo from the push output's `To <url>` matched against candidate remotes (JPSP-29).
+- **The hook only sees what the push printed.** Detection is output-first (`To <remote>` …); a truncated (`| tail -1`) or silenced (`>/dev/null`) push is caught only because the parsed command really invokes `git push` (heredoc bodies, quoted strings and `$(…)` stripped first — each was a live false positive). Filtering the output down to lines that prove nothing (`| grep -c`) still slips through, by design: keep push output unfiltered (JPSP-32).
 - **Never exit 0 silently on a push you could not place.** `exit 0` is also "nothing new to sync", so a lost sync looks like success. Warn with exit 2.
 - **A 2xx is not proof** (Jira project creation, transitions): re-read the resulting state.
 - **`claude plugin marketplace remove` uninstalls and disables every plugin of that marketplace**; if its install location is ever a symlink, delete the link yourself first so the removal cannot reach the target.
